@@ -1,0 +1,304 @@
+{% if error_msg %}
+<!-- Error / Setup Banner -->
+<div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
+    <div class="text-amber-400 font-bold text-lg">Setup Required</div>
+    <p class="text-sm text-slate-300">{{ error_msg }}</p>
+    <div>
+        <a href="/settings" class="inline-flex items-center px-4 py-2 rounded-lg bg-amber-500 text-gray-950 font-bold text-xs">Configure Settings</a>
+    </div>
+</div>
+{% elif not results.recommendations %}
+<!-- No Results -->
+<div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center space-y-3">
+    <h3 class="text-lg font-bold text-white">No Unseen Titles Found</h3>
+    <p class="text-sm text-slate-400 max-w-md mx-auto">
+        Try adjusting language, lowering the minimum rating threshold, or selecting a different genre filter.
+    </p>
+</div>
+{% else %}
+
+<!-- Recommendation Cards Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for item in results.recommendations %}
+    <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl flex flex-col hover:border-slate-700 transition duration-200 group relative hover:z-40 focus-within:z-40">
+
+        {% if not low_bandwidth and item.poster_url %}
+        <!-- Standard Poster Header -->
+        <div class="relative h-64 bg-slate-950 rounded-t-2xl">
+            <!-- Inner image wrapper with overflow-hidden for rounded corners & zoom hover -->
+            <div class="absolute inset-0 overflow-hidden rounded-t-2xl">
+                <img src="{{ item.poster_url }}" alt="{{ item.title }}" class="w-full h-full object-cover object-center group-hover:scale-105 transition duration-300" loading="lazy">
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent"></div>
+            </div>
+
+            <!-- Match Score Badge + Decision Tooltip (Elevated outside image wrapper) -->
+            <div class="absolute top-3 left-3 flex items-center space-x-1.5 z-30">
+                <div class="bg-amber-500/95 backdrop-blur text-gray-950 text-xs font-black px-2.5 py-1 rounded-lg shadow-lg">
+                    {{ item.match_score }}% Match
+                </div>
+
+                <!-- ? Tooltip Trigger -->
+                <div class="relative group/tooltip">
+                    <button type="button" class="w-6 h-6 rounded-lg bg-slate-900/90 hover:bg-amber-500 hover:text-gray-950 text-amber-400 border border-amber-500/40 text-xs font-black flex items-center justify-center transition shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
+                        ?
+                    </button>
+
+                    <!-- Floating Tooltip Card: Popped Over Card -->
+                    <div class="absolute left-0 top-7 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible group-focus-within/tooltip:opacity-100 group-focus-within/tooltip:visible transition-all duration-200 z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <span class="text-xs font-black uppercase tracking-wider text-amber-400">Decision Rationale</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">Verified Unseen</span>
+                        </div>
+
+                        {% if item.decision_factors and item.decision_factors.matched_genres %}
+                        <div class="space-y-1">
+                            <div class="text-[11px] font-bold text-slate-300">Favored Genre Alignment:</div>
+                            <div class="space-y-1">
+                                {% for mg in item.decision_factors.matched_genres %}
+                                <div class="flex items-center justify-between text-xs bg-slate-900/90 px-2 py-1 rounded border border-slate-800">
+                                    <span class="text-slate-300">{{ mg.name }}</span>
+                                    <span class="text-amber-400 font-semibold text-[11px]">{{ mg.affinity }} affinity ({{ mg.watched_count }} in Plex)</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if item.decision_factors and item.decision_factors.is_favored_decade %}
+                        <div class="text-xs flex items-center justify-between bg-slate-900/90 px-2 py-1.5 rounded border border-slate-800">
+                            <span class="text-slate-300">Era Preference:</span>
+                            <span class="text-blue-400 font-semibold text-[11px]">{{ item.decision_factors.decade_label }} ({{ item.decision_factors.decade_watched }} in Plex)</span>
+                        </div>
+                        {% endif %}
+
+                        <div class="text-xs flex items-center justify-between bg-slate-900/90 px-2 py-1.5 rounded border border-slate-800">
+                            <span class="text-slate-300">Language:</span>
+                            <span class="text-slate-200 font-medium text-[11px]">{{ item.language_name or (item.decision_factors and item.decision_factors.language) }}</span>
+                        </div>
+
+                        {% if item.decision_factors and item.decision_factors.score_points %}
+                        <div class="border-t border-slate-800 pt-2 space-y-1">
+                            <div class="text-[10px] uppercase font-bold text-slate-400">Match Score Breakdown:</div>
+                            {% for pt in item.decision_factors.score_points %}
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="text-slate-400">{{ pt.factor }}</span>
+                                <span class="text-amber-400 font-bold font-mono">{{ pt.points }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Type Badge -->
+            <div class="absolute top-3 right-3 flex items-center gap-1.5">
+                {% if item.available_on_plex %}
+                <span class="bg-emerald-500/90 backdrop-blur text-gray-950 text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider">On Plex</span>
+                {% endif %}
+                <span class="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded-lg uppercase tracking-wider">
+                    {{ item.media_type }}
+                </span>
+            </div>
+
+            <!-- Bottom Poster Overlay Title -->
+            <div class="absolute bottom-3 left-4 right-4">
+                <h2 class="text-xl font-black text-white leading-tight drop-shadow">{{ item.title }}</h2>
+                <div class="flex items-center space-x-2 text-xs text-slate-300 mt-1 font-medium">
+                    {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+                    <span>•</span>
+                    <span class="flex items-center text-amber-400 font-bold">
+                        <svg class="w-3.5 h-3.5 fill-current mr-1" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        {{ item.rating }}
+                    </span>
+                    <span class="text-slate-400">({{ item.vote_count }} votes)</span>
+                    <span>•</span>
+                    <span class="text-slate-400 uppercase text-[10px] tracking-wider">{{ item.original_language }}</span>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <!-- Low-Bandwidth Compact Header (Zero image downloads!) -->
+        <div class="p-5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border-b border-slate-800 space-y-3 rounded-t-2xl">
+            <div class="flex items-center justify-between">
+                <!-- Match Score Badge + Decision Tooltip -->
+                <div class="flex items-center space-x-1.5 z-30">
+                    <div class="bg-amber-500/95 text-gray-950 text-xs font-black px-2.5 py-1 rounded-lg shadow">
+                        {{ item.match_score }}% Match
+                    </div>
+
+                    <!-- ? Tooltip Trigger -->
+                    <div class="relative group/tooltip">
+                        <button type="button" class="w-6 h-6 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-gray-950 text-amber-400 border border-amber-500/40 text-xs font-black flex items-center justify-center transition shadow cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
+                            ?
+                        </button>
+
+                        <!-- Floating Tooltip Card: Popped Over Card -->
+                        <div class="absolute left-0 top-7 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible group-focus-within/tooltip:opacity-100 group-focus-within/tooltip:visible transition-all duration-200 z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
+                            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <span class="text-xs font-black uppercase tracking-wider text-amber-400">Decision Rationale</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">Verified Unseen</span>
+                            </div>
+
+                            {% if item.decision_factors and item.decision_factors.matched_genres %}
+                            <div class="space-y-1">
+                                <div class="text-[11px] font-bold text-slate-300">Favored Genre Alignment:</div>
+                                <div class="space-y-1">
+                                    {% for mg in item.decision_factors.matched_genres %}
+                                    <div class="flex items-center justify-between text-xs bg-slate-900/90 px-2 py-1 rounded border border-slate-800">
+                                        <span class="text-slate-300">{{ mg.name }}</span>
+                                        <span class="text-amber-400 font-semibold text-[11px]">{{ mg.affinity }} affinity ({{ mg.watched_count }} in Plex)</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if item.decision_factors and item.decision_factors.is_favored_decade %}
+                            <div class="text-xs flex items-center justify-between bg-slate-900/90 px-2 py-1.5 rounded border border-slate-800">
+                                <span class="text-slate-300">Era Preference:</span>
+                                <span class="text-blue-400 font-semibold text-[11px]">{{ item.decision_factors.decade_label }} ({{ item.decision_factors.decade_watched }} in Plex)</span>
+                            </div>
+                            {% endif %}
+
+                            <div class="text-xs flex items-center justify-between bg-slate-900/90 px-2 py-1.5 rounded border border-slate-800">
+                                <span class="text-slate-300">Language:</span>
+                                <span class="text-slate-200 font-medium text-[11px]">{{ item.language_name or (item.decision_factors and item.decision_factors.language) }}</span>
+                            </div>
+
+                            {% if item.decision_factors and item.decision_factors.score_points %}
+                            <div class="border-t border-slate-800 pt-2 space-y-1">
+                                <div class="text-[10px] uppercase font-bold text-slate-400">Match Score Breakdown:</div>
+                                {% for pt in item.decision_factors.score_points %}
+                                <div class="flex items-center justify-between text-[11px]">
+                                    <span class="text-slate-400">{{ pt.factor }}</span>
+                                    <span class="text-amber-400 font-bold font-mono">{{ pt.points }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold uppercase tracking-wider flex items-center space-x-1">
+                        <svg class="w-3 h-3 fill-none stroke-current stroke-2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        <span>Low Data</span>
+                    </span>
+                    <div class="bg-slate-800 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded-lg uppercase tracking-wider">
+                        {{ item.media_type }}
+                    </div>
+                    {% if item.available_on_plex %}
+                    <span class="bg-emerald-500/90 text-gray-950 text-xs font-bold px-2 py-0.5 rounded-lg uppercase tracking-wider">On Plex</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <h2 class="text-xl font-black text-white leading-tight">{{ item.title }}</h2>
+                <div class="flex items-center space-x-2 text-xs text-slate-300 mt-1 font-medium">
+                    {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+                    <span>•</span>
+                    <span class="flex items-center text-amber-400 font-bold">
+                        <svg class="w-3.5 h-3.5 fill-current mr-1" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        {{ item.rating }}
+                    </span>
+                    <span class="text-slate-400">({{ item.vote_count }} votes)</span>
+                    <span>•</span>
+                    <span class="text-slate-400 uppercase text-[10px] tracking-wider">{{ item.original_language }}</span>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Card Content Body -->
+        <div class="p-5 flex-grow flex flex-col justify-between space-y-4 rounded-b-2xl">
+
+            <div class="space-y-3">
+                <!-- Rationale Callout -->
+                <div class="text-xs bg-amber-500/10 border border-amber-500/20 text-amber-300/90 rounded-lg p-2.5 font-medium leading-relaxed">
+                    <span class="font-bold text-amber-400">Why recommended:</span> {{ item.rationale }}
+                </div>
+
+                <!-- Genre Tags -->
+                <div class="flex flex-wrap gap-1.5">
+                    {% for g in item.genres %}
+                    <span class="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/60 font-medium">
+                        {{ g }}
+                    </span>
+                    {% endfor %}
+                </div>
+
+                <!-- Synopsis -->
+                <p class="text-xs text-slate-400 line-clamp-3 leading-relaxed">
+                    {{ item.summary or "No synopsis available." }}
+                </p>
+            </div>
+
+            <div class="space-y-2 pt-3 border-t border-slate-800">
+
+                {% if item.available_on_plex %}
+                <!-- Available on Plex: Watch button (replaces Overseerr request) -->
+                {% if item.plex_url %}
+                <a href="{{ item.plex_url }}" target="_blank" rel="noopener noreferrer" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 transition">
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4.018 3.03A1 1 0 003 3.882v12.236a1 1 0 001.512.858l10.5-6.118a1 1 0 000-1.716L4.53 3.024a1 1 0 00-.512-.006z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Watch on Plex</span>
+                </a>
+                {% else %}
+                <div class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 font-bold text-xs">
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Available on Plex</span>
+                </div>
+                {% endif %}
+                {% elif has_overseerr %}
+                <!-- Overseerr 1-Click Request Button -->
+                <button type="button" onclick="requestOverseerr('{{ item.tmdb_id }}', '{{ item.media_type }}', this)" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-lg shadow-indigo-500/20 transition">
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                    </svg>
+                    <span>{% if item.media_type == 'show' %}Request Season 1 on Overseerr{% else %}Request Movie on Overseerr{% endif %}</span>
+                </button>
+                {% endif %}
+
+                <!-- Action Buttons: IMDb, TMDb, Overseerr Web -->
+                <div class="flex items-center gap-2">
+                    {% if item.imdb_url %}
+                    <a href="{{ item.imdb_url }}" target="_blank" rel="noopener noreferrer" class="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-[#F5C518] hover:bg-[#e4b50e] text-gray-950 font-black text-xs shadow transition">
+                        <span>IMDb</span>
+                        <svg class="w-3 h-3 stroke-current fill-none stroke-2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                    </a>
+                    {% endif %}
+
+                    {% if item.tmdb_url %}
+                    <a href="{{ item.tmdb_url }}" target="_blank" rel="noopener noreferrer" class="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition">
+                        <span>TMDb</span>
+                        <svg class="w-3 h-3 stroke-current fill-none stroke-2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                    </a>
+                    {% endif %}
+
+                    {% if item.overseerr_url %}
+                    <a href="{{ item.overseerr_url }}" target="_blank" rel="noopener noreferrer" title="View on Overseerr" class="inline-flex items-center justify-center p-2 rounded-xl bg-slate-800 hover:bg-indigo-900/60 text-indigo-400 hover:text-indigo-300 font-bold text-xs border border-slate-700 hover:border-indigo-500/50 transition">
+                        <span class="text-xs font-black">O</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}

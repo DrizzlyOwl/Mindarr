@@ -1,0 +1,384 @@
+{% extends "layout.html" %}
+
+{% block title %}Unseen Recommendations{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header & Filter Bar -->
+    <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-white tracking-tight">Unseen Content Recommendations</h1>
+                <div class="flex flex-wrap items-center gap-3 mt-1">
+                    <p class="text-sm text-slate-400">Filtered against your Plex history. Hover over <span class="text-amber-400 font-bold">(?)</span> to see decision rationale.</p>
+                    <!-- Cache status badge (populated by JS) -->
+                    <div id="cache-status" class="hidden"></div>
+                </div>
+            </div>
+
+            <!-- Filter Form -->
+            <form id="filter-form" method="GET" action="/recommendations" class="flex flex-wrap items-center gap-3">
+
+                <!-- Media Type -->
+                <select name="type" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="all" {% if selected_type == 'all' %}selected{% endif %}>All Formats</option>
+                    <option value="movie" {% if selected_type == 'movie' %}selected{% endif %}>Movies Only</option>
+                    <option value="show" {% if selected_type == 'show' %}selected{% endif %}>TV Shows Only</option>
+                </select>
+
+                <!-- Genre Filter -->
+                <select name="genre" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="">All Favored Genres</option>
+                    {% for g in profile.top_genres %}
+                    <option value="{{ g.genre }}" {% if selected_genre == g.genre %}selected{% endif %}>{{ g.genre }}</option>
+                    {% endfor %}
+                </select>
+
+                <!-- Spoken Language Filter -->
+                <select name="language" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="en" {% if selected_language == 'en' %}selected{% endif %}>English (EN)</option>
+                    <option value="all" {% if selected_language == 'all' %}selected{% endif %}>All Languages</option>
+                    <option value="ja" {% if selected_language == 'ja' %}selected{% endif %}>Japanese (JA)</option>
+                    <option value="ko" {% if selected_language == 'ko' %}selected{% endif %}>Korean (KO)</option>
+                    <option value="fr" {% if selected_language == 'fr' %}selected{% endif %}>French (FR)</option>
+                    <option value="es" {% if selected_language == 'es' %}selected{% endif %}>Spanish (ES)</option>
+                    <option value="de" {% if selected_language == 'de' %}selected{% endif %}>German (DE)</option>
+                    <option value="it" {% if selected_language == 'it' %}selected{% endif %}>Italian (IT)</option>
+                    <option value="da" {% if selected_language == 'da' %}selected{% endif %}>Danish (DA)</option>
+                    <option value="sv" {% if selected_language == 'sv' %}selected{% endif %}>Swedish (SV)</option>
+                    <option value="no" {% if selected_language == 'no' %}selected{% endif %}>Norwegian (NO)</option>
+                    <option value="zh" {% if selected_language == 'zh' %}selected{% endif %}>Chinese (ZH)</option>
+                    <option value="hi" {% if selected_language == 'hi' %}selected{% endif %}>Hindi (HI)</option>
+                </select>
+
+                <!-- Min Rating -->
+                <select name="min_rating" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                    <option value="7.0" {% if min_rating == 7.0 %}selected{% endif %}>Rating 7.0+</option>
+                    <option value="7.5" {% if min_rating == 7.5 %}selected{% endif %}>Rating 7.5+</option>
+                    <option value="8.0" {% if min_rating == 8.0 %}selected{% endif %}>Rating 8.0+</option>
+                </select>
+
+                <!-- Available on Plex only toggle -->
+                <label id="available-label" class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_available %}ring-1 ring-emerald-500 border-emerald-500/60{% endif %}">
+                    <input type="checkbox" name="available" value="1" {% if selected_available %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-emerald-500 focus:ring-emerald-500">
+                    <span class="text-sm {% if selected_available %}text-emerald-400 font-semibold{% else %}text-slate-300{% endif %}">On Plex only</span>
+                </label>
+
+                <!-- Include kids/family content toggle (excluded by default) -->
+                <label id="kids-label" class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_include_kids %}ring-1 ring-sky-500 border-sky-500/60{% endif %}">
+                    <input type="checkbox" name="include_kids" value="1" {% if selected_include_kids %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-sky-500 focus:ring-sky-500">
+                    <span class="text-sm {% if selected_include_kids %}text-sky-400 font-semibold{% else %}text-slate-300{% endif %}">Include kids</span>
+                </label>
+
+                <noscript>
+                    <button type="submit" class="px-3 py-2 rounded-lg bg-amber-500 text-gray-900 text-xs font-bold">Apply</button>
+                </noscript>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results container: skeletons shown until data is fetched -->
+    <!-- Results container: skeletons shown until data is fetched -->
+    <div id="recs-results">
+        <!-- Loading status banner -->
+        <div id="recs-loading" class="flex items-center justify-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 mb-6 text-sm text-slate-300">
+            <svg class="animate-spin w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="recs-loading-text" class="font-medium">Finding unseen titles that match your taste…</span>
+        </div>
+
+        <!-- Skeleton Loading Grid -->
+        <div id="recs-skeleton" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300">
+            {% for _ in range(6) %}
+            <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-pulse">
+                <div class="h-64 bg-slate-800/60"></div>
+                <div class="p-5 space-y-4">
+                    <div class="h-10 bg-slate-800/60 rounded-lg"></div>
+                    <div class="flex gap-1.5">
+                        <div class="h-5 w-16 bg-slate-800/60 rounded-md"></div>
+                        <div class="h-5 w-14 bg-slate-800/60 rounded-md"></div>
+                        <div class="h-5 w-12 bg-slate-800/60 rounded-md"></div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="h-3 bg-slate-800/60 rounded w-full"></div>
+                        <div class="h-3 bg-slate-800/60 rounded w-5/6"></div>
+                        <div class="h-3 bg-slate-800/60 rounded w-2/3"></div>
+                    </div>
+                    <div class="pt-3 border-t border-slate-800 space-y-2">
+                        <div class="h-9 bg-slate-800/60 rounded-xl"></div>
+                        <div class="h-9 bg-slate-800/60 rounded-xl"></div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Pagination controls (populated by JS) -->
+    <div id="recs-pagination" class="hidden flex items-center justify-center gap-2 pt-2"></div>
+
+</div>
+
+<noscript>
+    <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-2 mt-6">
+        <div class="text-amber-400 font-bold">JavaScript required</div>
+        <p class="text-sm text-slate-300">Recommendations load in the background and require JavaScript to display.</p>
+    </div>
+</noscript>
+
+<script>
+    (function () {
+        const form = document.getElementById('filter-form');
+        const resultsEl = document.getElementById('recs-results');
+        const cacheStatusEl = document.getElementById('cache-status');
+        const availableLabel = document.getElementById('available-label');
+        const kidsLabel = document.getElementById('kids-label');
+        const paginationEl = document.getElementById('recs-pagination');
+
+        // Current page (1-based). Capped server-side at 3 page sets.
+        let currentPage = parseInt(new URLSearchParams(window.location.search).get('page') || '1', 10) || 1;
+
+        function skeletonMarkup(statusText) {
+            let cards = '';
+            for (let i = 0; i < 6; i++) {
+                cards += `
+                <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-pulse">
+                    <div class="h-64 bg-slate-800/60"></div>
+                    <div class="p-5 space-y-4">
+                        <div class="h-10 bg-slate-800/60 rounded-lg"></div>
+                        <div class="flex gap-1.5">
+                            <div class="h-5 w-16 bg-slate-800/60 rounded-md"></div>
+                            <div class="h-5 w-14 bg-slate-800/60 rounded-md"></div>
+                            <div class="h-5 w-12 bg-slate-800/60 rounded-md"></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="h-3 bg-slate-800/60 rounded w-full"></div>
+                            <div class="h-3 bg-slate-800/60 rounded w-5/6"></div>
+                            <div class="h-3 bg-slate-800/60 rounded w-2/3"></div>
+                        </div>
+                        <div class="pt-3 border-t border-slate-800 space-y-2">
+                            <div class="h-9 bg-slate-800/60 rounded-xl"></div>
+                            <div class="h-9 bg-slate-800/60 rounded-xl"></div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            const text = statusText || 'Finding unseen titles that match your taste…';
+            return `
+                <div id="recs-loading" class="flex items-center justify-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 mb-6 text-sm text-slate-300">
+                    <svg class="animate-spin w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span class="font-medium">${text}</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300" data-skeleton-grid>${cards}</div>`;
+        }
+
+        function currentParams(extra) {
+            const params = new URLSearchParams();
+            params.set('type', form.type.value);
+            params.set('genre', form.genre.value || '');
+            params.set('language', form.language.value);
+            params.set('min_rating', form.min_rating.value);
+            params.set('available', form.available.checked ? '1' : '0');
+            params.set('include_kids', form.include_kids.checked ? '1' : '0');
+            params.set('page', String(currentPage));
+            if (extra) {
+                for (const k in extra) params.set(k, extra[k]);
+            }
+            return params;
+        }
+
+        function syncAvailableStyle() {
+            const on = form.available.checked;
+            availableLabel.classList.toggle('ring-1', on);
+            availableLabel.classList.toggle('ring-emerald-500', on);
+            availableLabel.classList.toggle('border-emerald-500/60', on);
+            const span = availableLabel.querySelector('span');
+            span.classList.toggle('text-emerald-400', on);
+            span.classList.toggle('font-semibold', on);
+            span.classList.toggle('text-slate-300', !on);
+        }
+
+        function syncKidsStyle() {
+            const on = form.include_kids.checked;
+            kidsLabel.classList.toggle('ring-1', on);
+            kidsLabel.classList.toggle('ring-sky-500', on);
+            kidsLabel.classList.toggle('border-sky-500/60', on);
+            const span = kidsLabel.querySelector('span');
+            span.classList.toggle('text-sky-400', on);
+            span.classList.toggle('font-semibold', on);
+            span.classList.toggle('text-slate-300', !on);
+        }
+
+        async function loadRecommendations(extra) {
+            const isRefresh = extra && (extra.force_refresh === '1' || extra.force_refresh === 1);
+            const statusText = isRefresh
+                ? 'Re-querying fresh recommendations…'
+                : 'Finding unseen titles that match your taste…';
+            resultsEl.innerHTML = skeletonMarkup(statusText);
+            cacheStatusEl.classList.add('hidden');
+            paginationEl.classList.add('hidden');
+
+            const params = currentParams(extra);
+            // Keep the browser URL in sync (without reload) for shareable/back-button state.
+            history.replaceState(null, '', '/recommendations?' + params.toString());
+
+            try {
+                const res = await fetch('/api/recommendations?' + params.toString(), {
+                    headers: { 'X-Requested-With': 'fetch' }
+                });
+                const data = await res.json();
+                await swapInResults(data.html || '');
+                renderCacheStatus(data);
+                renderPagination(data);
+            } catch (e) {
+                resultsEl.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
+                    <div class="text-amber-400 font-bold text-lg">Could not load recommendations</div>
+                    <p class="text-sm text-slate-300">${e}</p>
+                </div>`;
+            }
+        }
+
+        // Fade the skeletons out, then fade the real cards into their place.
+        function swapInResults(html) {
+            return new Promise((resolve) => {
+                const skeletonGrid = resultsEl.querySelector('[data-skeleton-grid]');
+                const loading = resultsEl.querySelector('#recs-loading');
+                const finish = () => {
+                    resultsEl.innerHTML = html;
+                    const grid = resultsEl.firstElementChild;
+                    if (grid) {
+                        grid.classList.add('transition-opacity', 'duration-300', 'opacity-0');
+                        // Force reflow so the transition runs from opacity-0.
+                        void grid.offsetWidth;
+                        grid.classList.remove('opacity-0');
+                    }
+                    resolve();
+                };
+                if (skeletonGrid) {
+                    if (loading) loading.classList.add('transition-opacity', 'duration-300', 'opacity-0');
+                    skeletonGrid.classList.add('opacity-0');
+                    setTimeout(finish, 300);
+                } else {
+                    finish();
+                }
+            });
+        }
+
+        function renderCacheStatus(data) {
+            if (!data.has_results) { cacheStatusEl.classList.add('hidden'); return; }
+            const params = currentParams({ force_refresh: '1' });
+            const refreshUrl = '/recommendations?' + params.toString();
+            if (data.from_cache) {
+                cacheStatusEl.className = 'inline-flex items-center space-x-1.5 bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs px-2.5 py-0.5 rounded-full';
+                cacheStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Cached (Plex sync fresh)</span><a href="#" data-refresh class="ml-1 text-amber-400 hover:text-amber-300 font-bold hover:underline" title="Force refresh recommendations from TMDb">↻ Refresh</a>`;
+            } else {
+                cacheStatusEl.className = 'inline-flex items-center space-x-1.5 bg-slate-800 border border-slate-700 text-slate-300 text-xs px-2.5 py-0.5 rounded-full';
+                cacheStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span>Live query (cached)</span><a href="#" data-refresh class="ml-1 text-amber-400 hover:text-amber-300 font-bold hover:underline" title="Force re-query external discovery">↻ Re-query</a>`;
+            }
+            cacheStatusEl.classList.remove('hidden');
+            const refreshLink = cacheStatusEl.querySelector('[data-refresh]');
+            if (refreshLink) {
+                refreshLink.addEventListener('click', function (ev) {
+                    ev.preventDefault();
+                    loadRecommendations({ force_refresh: '1' });
+                });
+            }
+        }
+
+        // Render Prev / page-number / Next controls (max 3 page sets, enforced server-side).
+        function renderPagination(data) {
+            const totalPages = data.total_pages || 1;
+            const page = data.page || 1;
+            currentPage = page;
+
+            if (!data.has_results || totalPages <= 1) {
+                paginationEl.classList.add('hidden');
+                paginationEl.innerHTML = '';
+                return;
+            }
+
+            const btnBase = 'inline-flex items-center justify-center min-w-9 h-9 px-3 rounded-lg text-sm font-semibold border transition-colors';
+            const idle = 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700';
+            const active = 'bg-amber-500 border-amber-500 text-gray-900';
+            const disabled = 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed';
+
+            let html = '';
+            html += `<button type="button" data-page="${page - 1}" class="${btnBase} ${page <= 1 ? disabled : idle}" ${page <= 1 ? 'disabled' : ''}>‹ Prev</button>`;
+            for (let p = 1; p <= totalPages; p++) {
+                html += `<button type="button" data-page="${p}" class="${btnBase} ${p === page ? active : idle}">${p}</button>`;
+            }
+            html += `<button type="button" data-page="${page + 1}" class="${btnBase} ${page >= totalPages ? disabled : idle}" ${page >= totalPages ? 'disabled' : ''}>Next ›</button>`;
+
+            paginationEl.innerHTML = html;
+            paginationEl.classList.remove('hidden');
+            paginationEl.querySelectorAll('button[data-page]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    if (btn.disabled) return;
+                    const target = parseInt(btn.getAttribute('data-page'), 10);
+                    if (!target || target === currentPage) return;
+                    currentPage = target;
+                    loadRecommendations();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                });
+            });
+        }
+
+        // Wire up filter changes -> re-fetch (no page reload).
+        form.addEventListener('change', function () {
+            syncAvailableStyle();
+            syncKidsStyle();
+            currentPage = 1; // Reset to first page when filters change.
+            loadRecommendations();
+        });
+        form.addEventListener('submit', function (ev) {
+            ev.preventDefault();
+            currentPage = 1;
+            loadRecommendations();
+        });
+
+        // Initial background fetch on first load.
+        const initialForce = new URLSearchParams(window.location.search).get('force_refresh');
+        loadRecommendations(initialForce ? { force_refresh: initialForce } : undefined);
+    })();
+
+    async function requestOverseerr(tmdbId, mediaType, btn) {
+        btn.disabled = true;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span>Submitting...</span>';
+
+        const form = new FormData();
+        form.append('tmdb_id', tmdbId);
+        form.append('media_type', mediaType);
+        if (mediaType === 'show' || mediaType === 'tv') {
+            form.append('seasons', '1');
+        }
+
+        try {
+            const res = await fetch('/api/overseerr/request', {
+                method: 'POST',
+                body: form
+            });
+            const data = await res.json();
+            if (data.success) {
+                btn.className = "w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow";
+                btn.innerHTML = (mediaType === 'show' || mediaType === 'tv') ? '<span>✔ Season 1 Requested!</span>' : '<span>✔ Requested!</span>';
+            } else {
+                alert(data.message);
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        } catch (e) {
+            alert('Request failed: ' + e);
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+</script>
+{% endblock %}

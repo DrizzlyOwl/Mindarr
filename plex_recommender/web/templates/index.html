@@ -1,0 +1,360 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard & Viewing Trends{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Dashboard sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Viewing Trends</a>
+        <a href="/community/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path.startswith('/community') %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Community</a>
+        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path.startswith('/sources') %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Sources</a>
+    </div>
+
+    {% if request.query_params.get('recs_not_ready') %}
+    <div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm px-4 py-3 rounded-xl flex items-center space-x-2">
+        <svg class="w-4 h-4 fill-current shrink-0" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10A8 8 0 11.99 10 8 8 0 0118 10zm-7-4a1 1 0 10-2 0v4a1 1 0 002 0V6zm-1 7a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd"/></svg>
+        <span>Unseen Recommendations will be available once your initial watch history sync has completed.</span>
+    </div>
+    {% endif %}
+
+    <!-- Top Hero / Welcome -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 to-slate-800/80 p-6 rounded-2xl border border-slate-800 shadow-xl">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Viewing Trends & Taste Profile</h1>
+            <p class="text-sm text-slate-400 mt-1">Deep analysis of your Plex playback history with recency decay and creator affinity.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            {% if recs_ready %}
+            <a href="/recommendations" class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition transform hover:-translate-y-0.5">
+                <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" />
+                </svg>
+                <span>Find Unseen Movies & Shows</span>
+            </a>
+            {% else %}
+            <span class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 text-slate-500 font-bold text-sm cursor-not-allowed select-none border border-slate-700" title="Available after your initial watch history sync completes">
+                <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                <span>Recommendations Locked</span>
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Movies Watched</div>
+            <div class="mt-2 text-3xl font-extrabold text-white">{{ stats.movies_count }}</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Series & Episodes</div>
+            <div class="mt-2 text-3xl font-extrabold text-white">{{ stats.shows_count }}</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Play History Logs</div>
+            <div class="mt-2 text-3xl font-extrabold text-white">{{ stats.events_count }}</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Seen IDs Filtered</div>
+            <div class="mt-2 text-3xl font-extrabold text-amber-400">{{ stats.seen_count }}</div>
+        </div>
+    </div>
+
+    {% if not profile.has_data %}
+    <!-- Empty State / Setup Required Prompt -->
+    <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-8 text-center space-y-4">
+        <div class="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto">
+            <svg class="w-8 h-8 stroke-current fill-none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+        </div>
+        <h2 class="text-xl font-bold text-white">No Watch Data Synced Yet</h2>
+        <p class="text-sm text-slate-400 max-w-md mx-auto">
+            Connect your Plex server and pull your historic watch logs to generate your personal taste profile and recommendations.
+        </p>
+        <div class="pt-2">
+            {% if current_user and current_user.is_admin %}
+            <a href="/settings" class="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm transition">
+                <span>Connect Plex Server</span>
+            </a>
+            {% else %}
+            <p class="text-xs text-slate-500">Ask your server administrator to sync libraries and watch history.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+
+    <!-- Taste Profile Summary Card -->
+    {% if profile.summary %}
+    <div class="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-amber-500/20 rounded-2xl p-6 shadow-lg">
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div class="flex items-start space-x-3">
+                <div class="w-10 h-10 shrink-0 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <svg class="w-5 h-5 fill-current" viewBox="0 0 20 20"><path d="M10 2a1 1 0 01.894.553l1.902 3.86 4.26.62a1 1 0 01.554 1.705l-3.083 3.005.728 4.243a1 1 0 01-1.451 1.054L10 15.98l-3.808 2.002a1 1 0 01-1.451-1.054l.728-4.243L2.386 8.68a1 1 0 01.554-1.705l4.26-.62 1.902-3.86A1 1 0 0110 2z"/></svg>
+                </div>
+                <div>
+                    <div class="text-xs font-semibold uppercase tracking-wider text-amber-400/80">Your Taste Profile</div>
+                    <h2 class="text-xl font-bold text-white mt-0.5">{{ profile.summary.headline }}</h2>
+                    <p class="text-xs text-slate-500 mt-1">Synthesized from {{ profile.total_items_analyzed }} analyzed titles &bull; weighted by frequency, rewatches, ratings, themes &amp; recency</p>
+                </div>
+            </div>
+            <a href="/recommendations" class="shrink-0 inline-flex items-center space-x-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs transition self-start">
+                <span>See Recommendations</span>
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 mt-5">
+            {% for h in profile.summary.highlights %}
+            <div class="flex items-start space-x-2.5">
+                <svg class="w-4 h-4 mt-0.5 shrink-0 text-amber-400 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                <div>
+                    <div class="text-sm text-slate-200 font-medium">{{ h.text }}</div>
+                    <div class="text-xs text-slate-400 mt-0.5">{{ h.metric }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if profile.top_keywords %}
+        <div class="mt-5 border-t border-slate-800 pt-4">
+            <div class="flex items-center space-x-1.5 mb-2.5">
+                <svg class="w-3.5 h-3.5 text-amber-400 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M17.707 9.293l-7-7A1 1 0 0010 2H3a1 1 0 00-1 1v7a1 1 0 00.293.707l7 7a1 1 0 001.414 0l7-7a1 1 0 000-1.414zM6 7a1 1 0 110-2 1 1 0 010 2z" clip-rule="evenodd"/></svg>
+                <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Signature Themes</div>
+            </div>
+            <p class="text-[11px] text-slate-500 mb-3">Recurring narrative motifs across your watch history, weighted by affinity &amp; recency. These steer your recommendations.</p>
+            <div class="flex flex-wrap gap-2">
+                {% for k in profile.top_keywords[:15] %}
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-800/70 border border-slate-700/60 text-xs"
+                      title="{{ k.count }} watched title{{ 's' if k.count != 1 else '' }} &bull; {{ k.score }}% affinity">
+                    <span class="font-medium text-slate-200">{{ k.keyword }}</span>
+                    <span class="text-[10px] font-semibold text-amber-400">{{ k.score }}%</span>
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% set src = profile.summary.sources %}
+        {% if src and src.total_events %}
+        <details class="mt-5 group border-t border-slate-800 pt-4">
+            <summary class="flex items-center justify-between cursor-pointer list-none text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
+                <span class="inline-flex items-center space-x-1.5">
+                    <svg class="w-3.5 h-3.5 fill-current transition-transform group-open:rotate-90" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L10.586 10 7.293 6.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                    <span>Data sources</span>
+                </span>
+                <span class="text-slate-500">{{ src.total_events }} watch events</span>
+            </summary>
+
+            <div class="mt-3 space-y-3">
+                <!-- Stacked bar -->
+                <div class="flex h-2.5 w-full rounded-full overflow-hidden bg-slate-800">
+                    {% if src.plex_pct %}<div class="bg-amber-500" style="width: {{ src.plex_pct }}%" title="Plex: {{ src.plex_pct }}%"></div>{% endif %}
+                    {% if src.tautulli_pct %}<div class="bg-orange-400" style="width: {{ src.tautulli_pct }}%" title="Tautulli: {{ src.tautulli_pct }}%"></div>{% endif %}
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-slate-950/50 border border-slate-800 rounded-lg px-3 py-2">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                            <span class="text-xs font-semibold text-slate-300">Plex watch history</span>
+                        </div>
+                        <div class="mt-1 text-sm font-bold text-white">{{ src.plex_events }} <span class="text-xs font-normal text-slate-400">events ({{ src.plex_pct }}%)</span></div>
+                    </div>
+                    <div class="bg-slate-950/50 border border-slate-800 rounded-lg px-3 py-2">
+                        <div class="flex items-center space-x-1.5">
+                            <span class="w-2 h-2 rounded-full bg-orange-400"></span>
+                            <span class="text-xs font-semibold text-slate-300">Tautulli enrichment</span>
+                        </div>
+                        <div class="mt-1 text-sm font-bold text-white">{{ src.tautulli_events }} <span class="text-xs font-normal text-slate-400">events ({{ src.tautulli_pct }}%)</span></div>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-slate-500">
+                    {% if src.tautulli_events and not src.plex_events %}
+                    All watch history for this profile is sourced from Tautulli. Plex server history returned no events for your account.
+                    {% elif src.plex_events and not src.tautulli_events %}
+                    All watch history is sourced directly from Plex. Tautulli enrichment is unused (not configured or no matching history).
+                    {% else %}
+                    Watch history is combined from Plex server history (primary) and Tautulli (optional enrichment).
+                    {% endif %}
+                </p>
+            </div>
+        </details>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Top Genres Bar Chart -->
+        <div class="lg:col-span-2 bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-lg font-bold text-white">Genre & Topic Affinity</h3>
+                    <p class="text-xs text-slate-400">Scored by frequency, rewatch count, and 6-month recency weighting</p>
+                </div>
+                <span class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-medium">Top 10</span>
+            </div>
+            <div class="h-72">
+                <canvas id="genresChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Release Decades & Format Breakdown -->
+        <div class="space-y-6">
+            <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
+                <h3 class="text-lg font-bold text-white mb-2">Release Eras</h3>
+                <p class="text-xs text-slate-400 mb-4">Distribution across release decades</p>
+                <div class="h-44">
+                    <canvas id="decadesChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
+                <h3 class="text-lg font-bold text-white mb-2">Format Split</h3>
+                <div class="flex items-center justify-around pt-2">
+                    <div class="text-center">
+                        <div class="text-2xl font-black text-amber-400">{{ profile.format_breakdown.movies }}</div>
+                        <div class="text-xs text-slate-400 font-medium">Movies</div>
+                    </div>
+                    <div class="h-8 w-px bg-slate-800"></div>
+                    <div class="text-center">
+                        <div class="text-2xl font-black text-blue-400">{{ profile.format_breakdown.shows }}</div>
+                        <div class="text-xs text-slate-400 font-medium">TV Series</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Creators & Trending Keywords Section -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Top Directors -->
+        <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
+            <h3 class="text-lg font-bold text-white mb-3 flex items-center space-x-2">
+                <svg class="w-5 h-5 text-amber-400 fill-current" viewBox="0 0 20 20">
+                    <path d="M4 3a2 2 0 100 4 2 2 0 000-4zM10 3a2 2 0 100 4 2 2 0 000-4zM16 3a2 2 0 100 4 2 2 0 000-4zM4 9a2 2 0 100 4 2 2 0 000-4zM10 9a2 2 0 100 4 2 2 0 000-4zM16 9a2 2 0 100 4 2 2 0 000-4zM4 15a2 2 0 100 4 2 2 0 000-4zM10 15a2 2 0 100 4 2 2 0 000-4zM16 15a2 2 0 100 4 2 2 0 000-4z"/>
+                </svg>
+                <span>Favored Directors</span>
+            </h3>
+            <div class="divide-y divide-slate-800/60">
+                {% for d in profile.top_directors %}
+                <div class="py-2.5 flex items-center justify-between text-sm">
+                    <span class="font-medium text-slate-200">{{ d.name }}</span>
+                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-amber-400 font-semibold">Affinity {{ d.score }}</span>
+                </div>
+                {% else %}
+                <div class="text-xs text-slate-500 py-4">No director information extracted yet.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Top Actors -->
+        <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
+            <h3 class="text-lg font-bold text-white mb-3 flex items-center space-x-2">
+                <svg class="w-5 h-5 text-blue-400 fill-current" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                </svg>
+                <span>Recurring Cast</span>
+            </h3>
+            <div class="divide-y divide-slate-800/60">
+                {% for a in profile.top_actors %}
+                <div class="py-2.5 flex items-center justify-between text-sm">
+                    <span class="font-medium text-slate-200">{{ a.name }}</span>
+                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-blue-400 font-semibold">Affinity {{ a.score }}</span>
+                </div>
+                {% else %}
+                <div class="text-xs text-slate-500 py-4">No actor information extracted yet.</div>
+                {% endfor %}
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Charts Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Genre Chart
+            const genresData = {{ profile.top_genres[:10] | tojson }};
+            const ctxGenre = document.getElementById('genresChart').getContext('2d');
+            new Chart(ctxGenre, {
+                type: 'bar',
+                data: {
+                    labels: genresData.map(g => g.genre),
+                    datasets: [{
+                        label: 'Affinity Score (0-100)',
+                        data: genresData.map(g => g.score),
+                        backgroundColor: 'rgba(245, 158, 11, 0.75)',
+                        borderColor: '#f59e0b',
+                        borderWidth: 1.5,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#cbd5e1', font: { weight: 'bold' } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+            // Decades Chart
+            const decadesData = {{ profile.decades | tojson }};
+            const ctxDecades = document.getElementById('decadesChart').getContext('2d');
+            new Chart(ctxDecades, {
+                type: 'line',
+                data: {
+                    labels: decadesData.map(d => d.decade),
+                    datasets: [{
+                        label: 'Titles',
+                        data: decadesData.map(d => d.count),
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#38bdf8'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.06)' },
+                            ticks: { color: '#94a3b8', stepSize: 1 }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        });
+    </script>
+    {% endif %}
+
+</div>
+{% endblock %}

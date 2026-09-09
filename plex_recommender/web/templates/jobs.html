@@ -1,0 +1,300 @@
+{% extends "layout.html" %}
+
+{% block title %}Jobs{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+    <div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">Configuration & Sync</h1>
+        <p class="text-sm text-slate-400 mt-1">Manage scheduled background jobs, trigger manual processing, and inspect execution history.</p>
+    </div>
+
+    <!-- Settings sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/settings" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Configuration</a>
+        <a href="/settings/jobs" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/jobs' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Jobs</a>
+        <a href="/settings/system" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/system' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">System</a>
+    </div>
+
+    <!-- 1. Configured Background Jobs -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800">
+            <h2 class="text-lg font-bold text-white">Active Background Tasks</h2>
+            <p class="text-xs text-slate-400">Scheduled and automated recurring operations for synchronization and recommendation processing.</p>
+        </div>
+
+        <div class="divide-y divide-slate-800">
+            {% for cj in configured_jobs %}
+            <div class="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-800/20 transition" id="job-card-{{ cj.id }}">
+                <div class="space-y-1.5 flex-1">
+                    <div class="flex items-center space-x-3">
+                        <span class="font-semibold text-white text-base">{{ cj.name }}</span>
+                        <span id="badge-{{ cj.id }}">
+                            {% if cj.state.is_running %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                                <span>Running</span>
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                Idle
+                            </span>
+                            {% endif %}
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">{{ cj.description }}</p>
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 pt-1">
+                        <span><strong class="text-slate-300">Interval:</strong> Every {{ cj.interval_hours }} hour{% if cj.interval_hours != 1 %}s{% endif %}{% if cj.id == 'recommendations' %} &amp; Chained post-sync{% endif %}</span>
+                        <span>&bull;</span>
+                        <span><strong class="text-slate-300">Next Scheduled Run:</strong> <span class="font-mono text-slate-300" id="next-run-{{ cj.id }}">{{ (cj.next_run or '')[:19]|replace('T', ' ') if cj.next_run else 'Not Scheduled' }}</span></span>
+                    </div>
+
+                    <!-- Live progress bar (shown when running) -->
+                    <div id="progress-container-{{ cj.id }}" class="{% if not cj.state.is_running %}hidden{% endif %} pt-2 max-w-md">
+                        <div class="flex items-center justify-between text-[11px] text-amber-400 mb-1">
+                            <span id="progress-status-{{ cj.id }}">{{ cj.state.status or 'Processing...' }}</span>
+                            <span id="progress-pct-{{ cj.id }}" class="font-mono font-bold">{{ cj.state.progress or 0 }}%</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div id="progress-bar-{{ cj.id }}" class="h-full bg-amber-500 transition-all duration-300" style="width: {{ cj.state.progress or 0 }}%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3 shrink-0">
+                    <button type="button"
+                            id="btn-run-{{ cj.id }}"
+                            onclick="triggerJob('{{ cj.id }}')"
+                            {% if cj.state.is_running %}disabled{% endif %}
+                            class="px-4 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-semibold text-xs transition flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                            <polygon points="4 3 17 10 4 17"/>
+                        </svg>
+                        <span>Run Now</span>
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- 2. Background Job History -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+            <div>
+                <h2 class="text-lg font-bold text-white">Background Job History</h2>
+                <p class="text-xs text-slate-400">Most recent {{ jobs|length }} job(s). Includes manual, scheduled, and chained runs.</p>
+            </div>
+            {% if jobs %}
+            <form method="POST" action="/api/jobs/clear" onsubmit="return confirm('Clear all job history?');">
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 text-xs font-semibold transition">
+                    Clear History
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if not jobs %}
+        <div class="px-6 py-12 text-center text-sm text-slate-500">
+            No jobs have run yet. Trigger a task above to see history here.
+        </div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-800">
+                        <th class="px-6 py-3 font-semibold">Job</th>
+                        <th class="px-4 py-3 font-semibold">Trigger</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
+                        <th class="px-4 py-3 font-semibold">Started</th>
+                        <th class="px-4 py-3 font-semibold">Duration</th>
+                        <th class="px-6 py-3 font-semibold">Detail</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/70" id="jobs-table-body">
+                    {% for job in jobs %}
+                    <tr class="hover:bg-slate-800/30">
+                        <td class="px-6 py-3 font-medium text-slate-200 whitespace-nowrap" title="{{ job.job_type }}">
+                            {% if job.job_type in ('manual_sync', 'scheduled_sync', 'sync') %}
+                                <span class="inline-flex items-center space-x-1.5 text-amber-400">
+                                    <svg class="w-3.5 h-3.5 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                    <span>Sync</span>
+                                </span>
+                                <span class="text-xs text-slate-500 font-mono ml-1.5">({{ job.job_type }})</span>
+                            {% elif job.job_type in ('recommendations_sync', 'recommendations') %}
+                                <span class="inline-flex items-center space-x-1.5 text-indigo-400">
+                                    <svg class="w-3.5 h-3.5 fill-none stroke-current" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+                                    <span>Recommendations</span>
+                                </span>
+                                <span class="text-xs text-slate-500 font-mono ml-1.5">({{ job.job_type }})</span>
+                            {% else %}
+                                <span>{{ job.job_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-slate-400 whitespace-nowrap">
+                            {% if job.trigger == 'chained' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30">chained</span>
+                            {% elif job.trigger == 'scheduled' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 text-sky-300 border border-sky-500/30">scheduled</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">manual</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            {% if job.status == 'success' %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Success</span>
+                            </span>
+                            {% elif job.status == 'failed' %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                                <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span>Failed</span>
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span><span>Running</span>
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-slate-400 whitespace-nowrap font-mono text-xs">{{ (job.started_at or '')[:19]|replace('T', ' ') }}</td>
+                        <td class="px-4 py-3 text-slate-300 whitespace-nowrap font-mono text-xs">
+                            {% if job.duration_ms is not none %}
+                                {% if job.duration_ms < 1000 %}{{ job.duration_ms }} ms
+                                {% else %}{{ '%.1f'|format(job.duration_ms / 1000) }} s{% endif %}
+                            {% else %}&mdash;{% endif %}
+                        </td>
+                        <td class="px-6 py-3 text-slate-400 max-w-xs truncate" title="{{ job.detail or '' }}">{{ job.detail or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+<script>
+    let pollInterval = null;
+
+    async function triggerJob(jobType) {
+        const btn = document.getElementById(`btn-run-${jobType}`);
+        if (btn) btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('job_type', jobType);
+
+        try {
+            const resp = await fetch('/api/jobs/run', {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await resp.json();
+            if (resp.status === 409) {
+                if (typeof showToast === 'function') {
+                    showToast(data.message || 'Job already running', 'warning');
+                }
+            } else if (!resp.ok) {
+                if (typeof showToast === 'function') {
+                    showToast(data.error || 'Failed to start job', 'error');
+                }
+            } else {
+                if (typeof showToast === 'function') {
+                    showToast(`Started ${jobType} task`, 'success');
+                }
+                startPolling();
+            }
+        } catch (e) {
+            console.error('Trigger job failed:', e);
+            if (typeof showToast === 'function') {
+                showToast('Network error triggering job', 'error');
+            }
+        }
+    }
+
+    function startPolling() {
+        if (pollInterval) return;
+        pollInterval = setInterval(updateJobsStatus, 2000);
+        updateJobsStatus();
+    }
+
+    async function updateJobsStatus() {
+        try {
+            const resp = await fetch('/api/jobs/status');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const configured = data.configured_jobs || [];
+            let anyRunning = false;
+
+            for (const cj of configured) {
+                const isRunning = cj.state && cj.state.is_running;
+                if (isRunning) anyRunning = true;
+
+                // Update badge
+                const badge = document.getElementById(`badge-${cj.id}`);
+                if (badge) {
+                    if (isRunning) {
+                        badge.innerHTML = `
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                                <span>Running</span>
+                            </span>
+                        `;
+                    } else {
+                        badge.innerHTML = `
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                Idle
+                            </span>
+                        `;
+                    }
+                }
+
+                // Update Run Now button state
+                const btn = document.getElementById(`btn-run-${cj.id}`);
+                if (btn) btn.disabled = isRunning;
+
+                // Update progress bar
+                const progContainer = document.getElementById(`progress-container-${cj.id}`);
+                const progStatus = document.getElementById(`progress-status-${cj.id}`);
+                const progPct = document.getElementById(`progress-pct-${cj.id}`);
+                const progBar = document.getElementById(`progress-bar-${cj.id}`);
+
+                if (progContainer) {
+                    if (isRunning) {
+                        progContainer.classList.remove('hidden');
+                        if (progStatus) progStatus.textContent = cj.state.status || 'Processing...';
+                        if (progPct) progPct.textContent = `${cj.state.progress || 0}%`;
+                        if (progBar) progBar.style.width = `${cj.state.progress || 0}%`;
+                    } else {
+                        progContainer.classList.add('hidden');
+                    }
+                }
+
+                // Update next run
+                const nextRunEl = document.getElementById(`next-run-${cj.id}`);
+                if (nextRunEl && cj.next_run) {
+                    nextRunEl.textContent = cj.next_run.substring(0, 19).replace('T', ' ');
+                }
+            }
+
+            if (!anyRunning && pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                // Optional reload to refresh the history table when execution finishes
+                setTimeout(() => window.location.reload(), 1000);
+            }
+        } catch (e) {
+            console.error('Job status polling error:', e);
+        }
+    }
+
+    // Start polling automatically if any job is already running on page load
+    {% if configured_jobs %}
+        {% for cj in configured_jobs %}
+            {% if cj.state.is_running %}
+                startPolling();
+            {% endif %}
+        {% endfor %}
+    {% endif %}
+</script>
+{% endblock %}

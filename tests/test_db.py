@@ -1,0 +1,287 @@
+import pytest
+from plex_recommender.config import settings
+from plex_recommender.db import (
+    init_db,
+    upsert_user_media,
+    upsert_media_item,
+    record_watch_event,
+    is_seen,
+    get_user_seen_index,
+    get_user_media_items,
+    get_stats,
+    normalize_title,
+    create_or_update_user,
+    delete_user,
+    get_user,
+    get_watch_events,
+)
+
+USER = "u1"
+
+
+@pytest.fixture(autouse=True)
+def setup_test_db(tmp_path, monkeypatch):
+    test_db = tmp_path / "test_data.db"
+    monkeypatch.setattr(settings, "db_path", test_db)
+    init_db()
+    create_or_update_user({"user_key": USER, "username": "alice", "email": "a@x.com", "is_admin": True})
+    yield
+
+
+def test_normalize_title():
+    assert normalize_title("The Matrix (1999)!") == "the matrix 1999"
+    assert normalize_title("Spider-Man: Into the Spider-Verse") == "spiderman into the spiderverse"
+
+
+def test_upsert_and_is_seen():
+    item = {
+        "item_id": "movie_101",
+        "media_type": "movie",
+        "title": "Inception",
+        "year": 2010,
+        "genres": ["Action", "Sci-Fi"],
+        "directors": ["Christopher Nolan"],
+        "imdb_id": "tt1375666",
+        "tmdb_id": "27205",
+        "tvdb_id": "121361",
+        "view_count": 3
+    }
+    upsert_user_media(USER, item)
+
+    assert is_seen(USER, imdb_id="tt1375666") is True
+    assert is_seen(USER, imdb_id="TT1375666") is True  # Case insensitive
+    assert is_seen(USER, imdb_id="tt9999999") is False
+
+    assert is_seen(USER, tmdb_id="27205") is True
+    assert is_seen(USER, tmdb_id=27205) is True
+
+    assert is_seen(USER, tvdb_id="121361") is True
+
+    assert is_seen(USER, title="Inception", year=2010) is True
+    assert is_seen(USER, title="Inception") is True
+    assert is_seen(USER, title="Interstellar", year=2014) is False
+
+
+def test_seen_index_is_per_user():
+    item = {
+        "item_id": "movie_102",
+        "media_type": "movie",
+        "title": "Blade Runner 2049",
+        "year": 2017,
+        "imdb_id": "tt1856101",
+        "tmdb_id": "335984"
+    }
+    upsert_user_media(USER, item)
+
+    seen = get_user_seen_index(USER)
+    assert "tt1856101" in seen["imdb"]
+    assert "335984" in seen["tmdb"]
+
+    # A different user has not seen it
+    create_or_update_user({"user_key": "u2", "username": "bob", "email": "b@x.com"})
+    other = get_user_seen_index("u2")
+    assert "tt1856101" not in other["imdb"]
+    assert is_seen("u2", imdb_id="tt1856101") is False
+
+
+def test_keywords_stored_and_preserved_on_empty():
+    item = {
+        "item_id": "movie_200",
+        "media_type": "movie",
+        "title": "Primer",
+        "year": 2004,
+        "tmdb_id": "14337",
+        "keywords": [{"id": 1, "name": "time travel"}],
+    }
+    upsert_user_media(USER, item)
+    loaded = {i["item_id"]: i for i in get_user_media_items(USER)}["movie_200"]
+    assert loaded["keywords"] == [{"id": 1, "name": "time travel"}]
+
+    # A later upsert with empty keywords must not wipe existing ones.
+    upsert_media_item({**item, "keywords": []})
+    loaded = {i["item_id"]: i for i in get_user_media_items(USER)}["movie_200"]
+    assert loaded["keywords"] == [{"id": 1, "name": "time travel"}]
+
+
+def test_per_user_rating_override_and_preserve():
+    item = {
+        "item_id": "movie_201",
+        "media_type": "movie",
+        "title": "Arrival",
+        "year": 2016,
+        "tmdb_id": "329865",
+        "audience_rating": 7.0,
+        "user_rating": 9.5,
+    }
+    upsert_user_media(USER, item)
+    loaded = {i["item_id"]: i for i in get_user_media_items(USER)}["movie_201"]
+    # Per-user rating is authoritative over shared media rating.
+    assert loaded["user_rating"] == 9.5
+
+    # A subsequent history sync without a rating must not clobber it.
+    upsert_user_media(USER, {**item, "user_rating": None})
+    loaded = {i["item_id"]: i for i in get_user_media_items(USER)}["movie_201"]
+    assert loaded["user_rating"] == 9.5
+
+
+def test_stats_reporting():
+    upsert_user_media(USER, {
+        "item_id": "movie_1",
+        "media_type": "movie",
+        "title": "Dune",
+        "year": 2021
+    })
+    upsert_user_media(USER, {
+        "item_id": "show_1",
+        "media_type": "show",
+        "title": "Severance",
+        "year": 2022
+    })
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "movie_1",
+        "title": "Dune",
+        "media_type": "movie",
+        "viewed_at": "2026-01-01T12:00:00Z"
+    })
+
+    stats = get_stats(USER)
+    assert stats["movies_count"] == 1
+    assert stats["shows_count"] == 1
+    assert stats["events_count"] == 1
+    assert stats["seen_count"] >= 2
+
+
+def test_upsert_preserves_genres_when_incoming_empty():
+    from plex_recommender.db import get_user_media_items
+    # First upsert with genres (e.g. from a library scan / show metadata)
+    upsert_user_media(USER, {
+        "item_id": "show_1", "media_type": "show", "title": "Show",
+        "year": 2015, "genres": ["Comedy", "Drama"], "tmdb_id": "111",
+    })
+    # Later rollup upsert where metadata fetch returned no genres
+    upsert_user_media(USER, {
+        "item_id": "show_1", "media_type": "show", "title": "Show",
+        "year": 2015, "genres": [], "tmdb_id": "111",
+    })
+    item = [i for i in get_user_media_items(USER) if i["item_id"] == "show_1"][0]
+    assert set(item["genres"]) == {"Comedy", "Drama"}
+
+
+def test_database_stats_and_clear_user_data():
+    from plex_recommender.db import (
+        get_database_stats, get_user_data_summary, clear_user_data,
+        record_watch_event, has_user_history,
+    )
+    upsert_user_media(USER, {
+        "item_id": "s1", "media_type": "show", "title": "Show",
+        "year": 2021, "genres": ["Comedy"], "tmdb_id": "111",
+    })
+    record_watch_event({"user_key": USER, "item_id": "s1", "viewed_at": "2026-01-01T00:00:00", "source": "plex"})
+
+    stats = get_database_stats()
+    assert stats["size_bytes"] > 0
+    assert stats["tables"]["user_media"] >= 1
+    assert stats["total_rows"] >= 1
+
+    summary = get_user_data_summary()
+    me = [u for u in summary if u["user_key"] == USER][0]
+    assert me["media_count"] >= 1
+    assert me["event_count"] >= 1
+    assert me["seen_count"] >= 1
+
+    deleted = clear_user_data(USER)
+    assert deleted["user_media"] >= 1
+    assert has_user_history(USER) is False
+
+
+def test_watch_event_reconciliation_plex_primary():
+    from plex_recommender.db import get_watch_events
+
+    # 1. Ingest Plex event (short title, 0 duration, end time)
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "41426",
+        "title": "A Tale of Two Bandits",
+        "media_type": "episode",
+        "viewed_at": "2026-09-06T20:55:18",
+        "duration_watched": 0,
+        "source": "plex",
+    })
+
+    # 2. Ingest Tautulli event for same session (~19 mins earlier, full title, real duration)
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "41426",
+        "title": "Brooklyn Nine-Nine - A Tale of Two Bandits",
+        "media_type": "episode",
+        "viewed_at": "2026-09-06T19:36:05+00:00",
+        "duration_watched": 1276,
+        "source": "tautulli",
+    })
+
+    events = get_watch_events(USER)
+    # Exactly one reconciled event should exist
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["source"] == "plex"  # Plex Primary
+    assert ev["title"] == "Brooklyn Nine-Nine - A Tale of Two Bandits"  # Full title enriched
+    assert ev["duration_watched"] == 1276  # Duration enriched
+
+
+def test_watch_event_distinct_sessions_not_deduped():
+    from plex_recommender.db import get_watch_events
+
+    # Ingest watch session on day 1
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "100",
+        "title": "Movie Rewatch",
+        "media_type": "movie",
+        "viewed_at": "2026-09-01T20:00:00",
+        "duration_watched": 7200,
+        "source": "plex",
+    })
+
+    # Ingest rewatch session 5 days later
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "100",
+        "title": "Movie Rewatch",
+        "media_type": "movie",
+        "viewed_at": "2026-09-06T20:00:00",
+        "duration_watched": 7200,
+        "source": "plex",
+    })
+
+    events = get_watch_events(USER)
+    assert len(events) == 2
+
+
+def test_delete_user_cleans_all_records():
+    # Given user with watch events, media, and seen identifiers
+    upsert_user_media(USER, {
+        "item_id": "movie_del",
+        "media_type": "movie",
+        "title": "To Delete",
+        "year": 2020,
+    })
+    record_watch_event({
+        "user_key": USER,
+        "item_id": "movie_del",
+        "title": "To Delete",
+        "media_type": "movie",
+        "viewed_at": "2026-09-01T20:00:00",
+        "source": "plex",
+    })
+    assert get_user(USER) is not None
+    assert len(get_user_media_items(USER)) > 0
+    assert len(get_watch_events(USER)) > 0
+
+    res = delete_user(USER)
+    assert res["users"] == 1
+    assert get_user(USER) is None
+    assert len(get_user_media_items(USER)) == 0
+    assert len(get_watch_events(USER)) == 0
+
+

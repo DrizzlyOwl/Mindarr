@@ -1,0 +1,665 @@
+{% extends "layout.html" %}
+
+{% block title %}Watch History Sources{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Dashboard sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-transparent text-slate-400 hover:text-white">Viewing Trends</a>
+        <a href="/community/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-transparent text-slate-400 hover:text-white">Community</a>
+        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-amber-500 text-amber-400">Sources</a>
+    </div>
+
+    <!-- Header & Info -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 to-slate-800/80 p-6 rounded-2xl border border-slate-800 shadow-xl">
+        <div>
+            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Watch History Sources</h1>
+            <p class="text-sm text-slate-400 mt-1">Detailed log of recent playback events and their provenance across Plex API and Tautulli.</p>
+        </div>
+        <div class="flex items-center space-x-3 text-xs text-slate-400">
+            <span class="inline-flex items-center px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 font-medium">
+                Showing {{ events|length }} most recent record{% if events|length != 1 %}s{% endif %} (max 100)
+            </span>
+        </div>
+    </div>
+
+    <!-- Metrics Cards -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Recent Plays Shown</div>
+            <div class="mt-2 text-3xl font-extrabold text-white" id="stat-shown-count">{{ events|length }}</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
+                <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span>Plex API Plays</span>
+            </div>
+            <div class="mt-2 text-3xl font-extrabold text-amber-400">{{ source_stats.plex }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Total across all history</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center space-x-1.5">
+                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                <span>Tautulli Plays</span>
+            </div>
+            <div class="mt-2 text-3xl font-extrabold text-cyan-400">{{ source_stats.tautulli }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Enriched history</div>
+        </div>
+        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Recent Watch Time</div>
+            <div class="mt-2 text-3xl font-extrabold text-slate-200">{% if total_hours > 0 %}{{ total_hours }} <span class="text-lg font-normal text-slate-400">hrs</span>{% else %}&mdash;{% endif %}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Across latest 100 plays</div>
+        </div>
+    </div>
+
+    <!-- Coloured Key / Provenance Legend -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg">
+        <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Data Provenance Key</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div class="flex items-start space-x-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 shrink-0">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span>Plex API</span>
+                </span>
+                <div>
+                    <div class="font-medium text-amber-300">Direct Server History (Live)</div>
+                    <p class="text-slate-400 mt-0.5">Logged directly from the Plex Media Server play history API using server-local user tokens.</p>
+                </div>
+            </div>
+
+            <div class="flex items-start space-x-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                    <span>Tautulli</span>
+                </span>
+                <div>
+                    <div class="font-medium text-cyan-300">Enriched Historical Archive</div>
+                    <p class="text-slate-400 mt-0.5">Recovered from Tautulli's long-term database archive, backfilling watches beyond Plex's standard history buffer.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if not events %}
+    <!-- Empty State -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
+        <div class="w-16 h-16 bg-slate-800 text-slate-500 rounded-full flex items-center justify-center mx-auto">
+            <svg class="w-8 h-8 fill-none stroke-current" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <h2 class="text-xl font-bold text-white">No Watch History Found</h2>
+        <p class="text-sm text-slate-400 max-w-md mx-auto">
+            No playback events are recorded for your account yet. Trigger a sync in Settings or wait for the background job to pull your history.
+        </p>
+        <div class="pt-2">
+            <a href="/settings" class="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm transition">
+                <span>Go to Settings &amp; Sync</span>
+            </a>
+        </div>
+    </div>
+    {% else %}
+
+    <!-- Controls Toolbar: Search, Media Type Filter, and View Switcher -->
+    <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        <!-- Search Input -->
+        <div class="relative flex-1 max-w-md">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+            </span>
+            <input type="text" id="history-search" oninput="filterHistory()" placeholder="Search title, year, or genre..." class="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/60 transition">
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+            <!-- Media Type Filter -->
+            <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800" role="group">
+                <button type="button" onclick="setTypeFilter('all')" id="btn-type-all" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-slate-800 text-white shadow-sm">
+                    All
+                </button>
+                <button type="button" onclick="setTypeFilter('movie')" id="btn-type-movie" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+                    Movies
+                </button>
+                <button type="button" onclick="setTypeFilter('episode')" id="btn-type-episode" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition">
+                    Episodes
+                </button>
+            </div>
+
+            <!-- View Switcher (Table vs Timeline) -->
+            <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800" role="group">
+                <button type="button" onclick="setViewMode('table')" id="btn-view-table" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-amber-500 text-gray-950 shadow-sm" title="Dense tabular view">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Table</span>
+                </button>
+                <button type="button" onclick="setViewMode('timeline')" id="btn-view-timeline" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition" title="Chronological timeline view">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Timeline</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden store of all event records for detail modal -->
+    <script>
+        window.WATCH_EVENTS_DATA = {{ events|tojson }};
+    </script>
+
+    <!-- Table View Container -->
+    <div id="view-table-container" class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead>
+                    <tr class="text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-800 bg-slate-950/40">
+                        <th class="px-5 py-3.5 font-semibold">Source</th>
+                        <th class="px-5 py-3.5 font-semibold">Title &amp; Info</th>
+                        <th class="px-4 py-3.5 font-semibold">Type</th>
+                        <th class="px-4 py-3.5 font-semibold">Viewed At</th>
+                        <th class="px-4 py-3.5 font-semibold">Duration</th>
+                        <th class="px-4 py-3.5 font-semibold text-right">Details</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60" id="history-table-body">
+                    {% for ev in events %}
+                    <tr class="hover:bg-slate-800/40 transition cursor-pointer group history-row"
+                        data-index="{{ loop.index0 }}"
+                        data-type="{{ ev.media_type }}"
+                        data-title="{{ (ev.title or '')|lower }}"
+                        data-year="{{ ev.year or '' }}"
+                        data-genres="{{ (ev.genres or [])|join(' ')|lower }}"
+                        onclick="openDetailDrawer({{ loop.index0 }})">
+                        
+                        <!-- Source Column (Coloured Key) -->
+                        <td class="px-5 py-3.5 whitespace-nowrap">
+                            {% if ev.source == 'tautulli' %}
+                            <div class="flex items-center space-x-1.5">
+                                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                                    <span>Tautulli</span>
+                                </span>
+                                <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60" title="Enriched archive record">Archive</span>
+                            </div>
+                            {% else %}
+                            <div class="flex items-center space-x-1.5">
+                                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                    <span>Plex API</span>
+                                </span>
+                                <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20" title="Direct server playback log">Live</span>
+                            </div>
+                            {% endif %}
+                        </td>
+
+                        <!-- Title & Year & Genres -->
+                        <td class="px-5 py-3.5">
+                            <div class="font-semibold text-slate-100 group-hover:text-amber-400 transition flex items-center space-x-2">
+                                <span>{{ ev.title }}</span>
+                                {% if ev.year %}
+                                <span class="text-xs font-normal text-slate-400">({{ ev.year }})</span>
+                                {% endif %}
+                            </div>
+                            {% if ev.genres %}
+                            <div class="flex flex-wrap gap-1 mt-1">
+                                {% for g in ev.genres[:3] %}
+                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50">{{ g }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </td>
+
+                        <!-- Media Type -->
+                        <td class="px-4 py-3.5 whitespace-nowrap">
+                            {% if ev.media_type == 'movie' %}
+                            <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                                <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                                </svg>
+                                <span>Movie</span>
+                            </span>
+                            {% elif ev.media_type == 'episode' %}
+                            <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                                <svg class="w-3 h-3 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                                <span>Episode</span>
+                            </span>
+                            {% else %}
+                            <span class="text-xs text-slate-400 uppercase">{{ ev.media_type or 'Item' }}</span>
+                            {% endif %}
+                        </td>
+
+                        <!-- Viewed At -->
+                        <td class="px-4 py-3.5 whitespace-nowrap text-xs text-slate-300 font-mono">
+                            {{ ev.viewed_at_clean or '&mdash;' }}
+                        </td>
+
+                        <!-- Duration -->
+                        <td class="px-4 py-3.5 whitespace-nowrap text-xs text-slate-400 font-mono">
+                            {{ ev.duration_formatted or '&mdash;' }}
+                        </td>
+
+                        <!-- Action / Detail Arrow -->
+                        <td class="px-4 py-3.5 whitespace-nowrap text-right">
+                            <button type="button" onclick="openDetailDrawer({{ loop.index0 }})" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Inspect diagnostics and metadata">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="table-empty-search" class="hidden px-6 py-12 text-center text-sm text-slate-500">
+            No watch records match the current filters.
+        </div>
+    </div>
+
+    <!-- Timeline View Container (Hidden by default, activated via Switcher) -->
+    <div id="view-timeline-container" class="hidden space-y-4">
+        <div class="relative border-l-2 border-slate-800 ml-4 pl-6 space-y-6" id="history-timeline-list">
+            {% for ev in events %}
+            <div class="relative group history-timeline-item cursor-pointer"
+                data-index="{{ loop.index0 }}"
+                data-type="{{ ev.media_type }}"
+                data-title="{{ (ev.title or '')|lower }}"
+                data-year="{{ ev.year or '' }}"
+                data-genres="{{ (ev.genres or [])|join(' ')|lower }}"
+                onclick="openDetailDrawer({{ loop.index0 }})">
+                
+                <!-- Dot on Timeline Line (Color-coded) -->
+                {% if ev.source == 'tautulli' %}
+                <span class="absolute -left-[31px] top-4 w-3.5 h-3.5 rounded-full bg-cyan-400 border-4 border-[#0b0f19] shadow-md shadow-cyan-500/40"></span>
+                {% else %}
+                <span class="absolute -left-[31px] top-4 w-3.5 h-3.5 rounded-full bg-amber-400 border-4 border-[#0b0f19] shadow-md shadow-amber-500/40"></span>
+                {% endif %}
+
+                <!-- Timeline Event Card -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="space-y-1.5 flex-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <!-- Source Badge -->
+                            {% if ev.source == 'tautulli' %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                                <span>Tautulli</span>
+                            </span>
+                            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60">Archive</span>
+                            {% else %}
+                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                <span>Plex API</span>
+                            </span>
+                            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Live</span>
+                            {% endif %}
+
+                            <!-- Media Type Pill -->
+                            {% if ev.media_type == 'movie' %}
+                            <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Movie</span>
+                            {% elif ev.media_type == 'episode' %}
+                            <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">Episode</span>
+                            {% endif %}
+                        </div>
+
+                        <div class="text-base font-bold text-white group-hover:text-amber-400 transition">
+                            {{ ev.title }} {% if ev.year %}<span class="text-sm font-normal text-slate-400">({{ ev.year }})</span>{% endif %}
+                        </div>
+
+                        {% if ev.genres %}
+                        <div class="flex flex-wrap gap-1">
+                            {% for g in ev.genres[:4] %}
+                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50">{{ g }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="flex sm:flex-col items-center sm:items-end justify-between text-xs text-slate-400 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                        <span class="font-mono text-slate-300">{{ ev.viewed_at_clean }}</span>
+                        {% if ev.duration_formatted %}
+                        <span class="text-[11px] font-mono text-slate-400 mt-0.5">{{ ev.duration_formatted }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div id="timeline-empty-search" class="hidden px-6 py-12 text-center text-sm text-slate-500 bg-slate-900/90 border border-slate-800 rounded-2xl">
+            No watch records match the current filters.
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Slide-out Drawer: Media Details & Provenance Diagnostics -->
+<div id="detail-drawer-backdrop" onclick="closeDetailDrawer()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] hidden opacity-0 transition-opacity duration-300"></div>
+
+<div id="detail-drawer" class="fixed top-0 right-0 h-full w-full max-w-md bg-[#0f172a] border-l border-slate-800 shadow-2xl z-[100] transform translate-x-full transition-transform duration-300 flex flex-col">
+    <!-- Drawer Header -->
+    <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
+        <div>
+            <h3 class="text-sm font-bold text-white" id="drawer-header-title">Playback Details</h3>
+            <p class="text-xs text-slate-400" id="drawer-header-subtitle">Source &amp; Media Diagnostics</p>
+        </div>
+        <button type="button" onclick="closeDetailDrawer()" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- Drawer Body (Scrollable) -->
+    <div class="p-6 space-y-6 overflow-y-auto flex-1 text-sm">
+        <!-- Title & Badges -->
+        <div>
+            <div class="flex items-center space-x-2" id="drawer-source-badges">
+                <!-- Injected via JS -->
+            </div>
+            <h2 class="text-xl font-bold text-white mt-2" id="drawer-title">Title</h2>
+            <div class="flex items-center space-x-2 text-xs text-slate-400 mt-1" id="drawer-meta-line">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+
+        <!-- Genres -->
+        <div id="drawer-genres-box">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Genres</div>
+            <div class="flex flex-wrap gap-1.5" id="drawer-genres-list"></div>
+        </div>
+
+        <!-- Plot Summary -->
+        <div id="drawer-summary-box">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Overview</div>
+            <p class="text-slate-300 text-xs leading-relaxed" id="drawer-summary"></p>
+        </div>
+
+        <!-- People / Credits -->
+        <div id="drawer-people-box" class="space-y-3">
+            <div id="drawer-directors-row">
+                <div class="text-xs font-semibold text-slate-400">Director(s)</div>
+                <div class="text-xs text-slate-200 mt-0.5" id="drawer-directors"></div>
+            </div>
+            <div id="drawer-actors-row">
+                <div class="text-xs font-semibold text-slate-400">Featured Cast</div>
+                <div class="text-xs text-slate-200 mt-0.5" id="drawer-actors"></div>
+            </div>
+        </div>
+
+        <!-- External Quick Links -->
+        <div id="drawer-external-links-box">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">External Links</div>
+            <div class="flex flex-wrap gap-2" id="drawer-links-container"></div>
+        </div>
+
+        <!-- Raw Provenance Diagnostics -->
+        <div class="border-t border-slate-800/80 pt-5 space-y-3">
+            <div class="text-xs font-semibold uppercase tracking-wider text-slate-500">Diagnostics &amp; Identifiers</div>
+            <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs font-mono">
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Source:</span>
+                    <span id="drawer-diag-source" class="font-bold text-slate-200"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Viewed Timestamp:</span>
+                    <span id="drawer-diag-viewed" class="text-slate-300"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Duration Logged:</span>
+                    <span id="drawer-diag-duration" class="text-slate-300"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Plex Rating Key:</span>
+                    <span id="drawer-diag-itemid" class="text-slate-300"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>Account ID:</span>
+                    <span id="drawer-diag-account" class="text-slate-300"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>TMDb ID:</span>
+                    <span id="drawer-diag-tmdb" class="text-slate-300"></span>
+                </div>
+                <div class="flex justify-between items-center text-slate-400">
+                    <span>IMDb ID:</span>
+                    <span id="drawer-diag-imdb" class="text-slate-300"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let activeTypeFilter = 'all';
+
+    function setTypeFilter(type) {
+        activeTypeFilter = type;
+        const types = ['all', 'movie', 'episode'];
+        types.forEach(t => {
+            const btn = document.getElementById(`btn-type-${t}`);
+            if (!btn) return;
+            if (t === type) {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-slate-800 text-white shadow-sm';
+            } else {
+                btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+            }
+        });
+        filterHistory();
+    }
+
+    function setViewMode(mode) {
+        const tableContainer = document.getElementById('view-table-container');
+        const timelineContainer = document.getElementById('view-timeline-container');
+        const btnTable = document.getElementById('btn-view-table');
+        const btnTimeline = document.getElementById('btn-view-timeline');
+
+        if (mode === 'timeline') {
+            tableContainer.classList.add('hidden');
+            timelineContainer.classList.remove('hidden');
+            btnTimeline.className = 'inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-amber-500 text-gray-950 shadow-sm';
+            btnTable.className = 'inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        } else {
+            timelineContainer.classList.add('hidden');
+            tableContainer.classList.remove('hidden');
+            btnTable.className = 'inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-amber-500 text-gray-950 shadow-sm';
+            btnTimeline.className = 'inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition';
+        }
+    }
+
+    function filterHistory() {
+        const query = (document.getElementById('history-search')?.value || '').toLowerCase().trim();
+        const rows = document.querySelectorAll('.history-row');
+        const timelineItems = document.querySelectorAll('.history-timeline-item');
+
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const type = row.getAttribute('data-type') || '';
+            const title = row.getAttribute('data-title') || '';
+            const year = row.getAttribute('data-year') || '';
+            const genres = row.getAttribute('data-genres') || '';
+
+            const matchesType = (activeTypeFilter === 'all') || (type === activeTypeFilter);
+            const matchesQuery = !query || title.includes(query) || year.includes(query) || genres.includes(query);
+
+            if (matchesType && matchesQuery) {
+                row.classList.remove('hidden');
+                visibleCount++;
+            } else {
+                row.classList.add('hidden');
+            }
+        });
+
+        timelineItems.forEach(item => {
+            const type = item.getAttribute('data-type') || '';
+            const title = item.getAttribute('data-title') || '';
+            const year = item.getAttribute('data-year') || '';
+            const genres = item.getAttribute('data-genres') || '';
+
+            const matchesType = (activeTypeFilter === 'all') || (type === activeTypeFilter);
+            const matchesQuery = !query || title.includes(query) || year.includes(query) || genres.includes(query);
+
+            if (matchesType && matchesQuery) {
+                item.classList.remove('hidden');
+            } else {
+                item.classList.add('hidden');
+            }
+        });
+
+        // Toggle empty indicators
+        const tableEmpty = document.getElementById('table-empty-search');
+        if (tableEmpty) {
+            if (visibleCount === 0 && rows.length > 0) {
+                tableEmpty.classList.remove('hidden');
+            } else {
+                tableEmpty.classList.add('hidden');
+            }
+        }
+
+        const timelineEmpty = document.getElementById('timeline-empty-search');
+        if (timelineEmpty) {
+            if (visibleCount === 0 && timelineItems.length > 0) {
+                timelineEmpty.classList.remove('hidden');
+            } else {
+                timelineEmpty.classList.add('hidden');
+            }
+        }
+    }
+
+    function openDetailDrawer(index) {
+        const events = window.WATCH_EVENTS_DATA || (typeof WATCH_EVENTS_DATA !== 'undefined' ? WATCH_EVENTS_DATA : null);
+        if (!events || !events[index]) return;
+        const item = events[index];
+
+        document.getElementById('drawer-title').textContent = item.title || 'Untitled';
+
+        // Source badge
+        const badgeBox = document.getElementById('drawer-source-badges');
+        if (item.source === 'tautulli') {
+            badgeBox.innerHTML = `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                    <span>Tautulli</span>
+                </span>
+                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Archived Play</span>
+            `;
+        } else {
+            badgeBox.innerHTML = `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                    <span>Plex API</span>
+                </span>
+                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Direct History</span>
+            `;
+        }
+
+        // Meta line
+        const metaLine = document.getElementById('drawer-meta-line');
+        const metaParts = [];
+        if (item.year) metaParts.push(`<span>${item.year}</span>`);
+        if (item.media_type) metaParts.push(`<span class="capitalize">${item.media_type}</span>`);
+        if (item.duration_formatted) metaParts.push(`<span>${item.duration_formatted}</span>`);
+        metaLine.innerHTML = metaParts.join(' &bull; ');
+
+        // Genres
+        const genresBox = document.getElementById('drawer-genres-box');
+        const genresList = document.getElementById('drawer-genres-list');
+        if (item.genres && item.genres.length > 0) {
+            genresBox.classList.remove('hidden');
+            genresList.innerHTML = item.genres.map(g => `<span class="px-2 py-0.5 rounded-lg text-xs bg-slate-800 text-slate-300 border border-slate-700">${g}</span>`).join('');
+        } else {
+            genresBox.classList.add('hidden');
+        }
+
+        // Summary
+        const summaryBox = document.getElementById('drawer-summary-box');
+        const summaryText = document.getElementById('drawer-summary');
+        if (item.summary) {
+            summaryBox.classList.remove('hidden');
+            summaryText.textContent = item.summary;
+        } else {
+            summaryBox.classList.add('hidden');
+        }
+
+        // Directors
+        const directorsRow = document.getElementById('drawer-directors-row');
+        const directorsText = document.getElementById('drawer-directors');
+        if (item.directors && item.directors.length > 0) {
+            directorsRow.classList.remove('hidden');
+            directorsText.textContent = item.directors.join(', ');
+        } else {
+            directorsRow.classList.add('hidden');
+        }
+
+        // Actors
+        const actorsRow = document.getElementById('drawer-actors-row');
+        const actorsText = document.getElementById('drawer-actors');
+        if (item.actors && item.actors.length > 0) {
+            actorsRow.classList.remove('hidden');
+            actorsText.textContent = item.actors.slice(0, 8).join(', ');
+        } else {
+            actorsRow.classList.add('hidden');
+        }
+
+        // External Links
+        const linksBox = document.getElementById('drawer-external-links-box');
+        const linksContainer = document.getElementById('drawer-links-container');
+        const links = [];
+        if (item.tmdb_id) {
+            const tmdbType = item.media_type === 'show' || item.media_type === 'episode' ? 'tv' : 'movie';
+            links.push(`<a href="https://www.themoviedb.org/${tmdbType}/${item.tmdb_id}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold border border-slate-700 transition"><span>TMDb Page &nearr;</span></a>`);
+        }
+        if (item.imdb_id) {
+            links.push(`<a href="https://www.imdb.com/title/${item.imdb_id}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold border border-slate-700 transition"><span>IMDb Page &nearr;</span></a>`);
+        }
+        if (links.length > 0) {
+            linksBox.classList.remove('hidden');
+            linksContainer.innerHTML = links.join('');
+        } else {
+            linksBox.classList.add('hidden');
+        }
+
+        // Diagnostics
+        document.getElementById('drawer-diag-source').textContent = item.source === 'tautulli' ? 'Tautulli (archive)' : 'Plex API (direct)';
+        document.getElementById('drawer-diag-viewed').textContent = item.viewed_at_clean || item.viewed_at || '—';
+        document.getElementById('drawer-diag-duration').textContent = item.duration_formatted ? `${item.duration_formatted} (${item.raw_duration})` : '—';
+        document.getElementById('drawer-diag-itemid').textContent = item.item_id || '—';
+        document.getElementById('drawer-diag-account').textContent = item.account_id || '—';
+        document.getElementById('drawer-diag-tmdb').textContent = item.tmdb_id || '—';
+        document.getElementById('drawer-diag-imdb').textContent = item.imdb_id || '—';
+
+        // Show drawer
+        const drawer = document.getElementById('detail-drawer');
+        const backdrop = document.getElementById('detail-drawer-backdrop');
+        backdrop.classList.remove('hidden');
+        requestAnimationFrame(() => {
+            backdrop.classList.remove('opacity-0');
+            drawer.classList.remove('translate-x-full');
+        });
+    }
+
+    function closeDetailDrawer() {
+        const drawer = document.getElementById('detail-drawer');
+        const backdrop = document.getElementById('detail-drawer-backdrop');
+        drawer.classList.add('translate-x-full');
+        backdrop.classList.add('opacity-0');
+        setTimeout(() => {
+            backdrop.classList.add('hidden');
+        }, 300);
+    }
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeDetailDrawer();
+        }
+    });
+</script>
+{% endblock %}

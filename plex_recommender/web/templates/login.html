@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in - Mindarr</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-image: radial-gradient(circle at 20% 0%, rgba(245, 158, 11, 0.08), transparent 40%),
+                              radial-gradient(circle at 80% 100%, rgba(99, 102, 241, 0.08), transparent 40%);
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spinner { animation: spin 1s linear infinite; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center px-4 py-10">
+    <div class="w-full max-w-md">
+        <!-- Brand -->
+        <div class="flex items-center justify-center space-x-3 mb-8">
+            <div class="w-11 h-11 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-400 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                <svg class="w-6 h-6 text-gray-900 fill-current" viewBox="0 0 24 24">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+            </div>
+            <span class="font-bold text-2xl tracking-tight text-white">Mind<span class="text-amber-400 font-extrabold">arr</span></span>
+        </div>
+
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-xl space-y-6 backdrop-blur">
+            <!-- Header + role context -->
+            <div class="text-center space-y-2">
+                <h1 class="text-lg font-bold text-white">Sign in with Plex</h1>
+                {% if needs_admin %}
+                <div class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20"><path d="M10 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 15.3 5.2 16.7l.9-5.4L2.2 7.7l5.4-.8L10 2z"/></svg>
+                    <span>First-time setup</span>
+                </div>
+                <p class="text-sm text-slate-400">The first account to sign in becomes the <span class="text-amber-400 font-semibold">Administrator</span> and configures integrations.</p>
+                {% else %}
+                <p class="text-sm text-slate-400">Authorize with your Plex account to continue. Access is granted to the server owner and its shared users.</p>
+                {% endif %}
+            </div>
+
+            <!-- Primary action -->
+            <button type="button" onclick="startLogin()" id="login-btn"
+                class="w-full inline-flex items-center justify-center space-x-2 px-4 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-gray-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                <svg id="login-btn-icon" class="w-4 h-4 fill-current" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span id="login-btn-text">Sign in with Plex</span>
+            </button>
+
+            <!-- Status / progress panel -->
+            <div id="status-panel" class="hidden rounded-xl border p-4 space-y-3">
+                <div class="flex items-center space-x-3">
+                    <svg id="status-spinner" class="spinner w-5 h-5 text-amber-400 fill-none stroke-current hidden" viewBox="0 0 24 24" stroke-width="3">
+                        <circle class="opacity-25" cx="12" cy="12" r="10"></circle>
+                        <path class="opacity-90" d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                    </svg>
+                    <div id="status-text" class="text-sm font-medium"></div>
+                </div>
+
+                <!-- PIN code -->
+                <div id="pin-row" class="hidden">
+                    <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1">Linking code</div>
+                    <div id="pin-code" class="font-mono text-lg font-bold tracking-[0.3em] text-white bg-slate-950/70 border border-slate-800 rounded-lg px-3 py-2 text-center select-all"></div>
+                </div>
+
+                <!-- Popup-blocked / manual link fallback -->
+                <a id="auth-link" href="#" target="_blank" rel="noopener noreferrer"
+                   class="hidden text-xs text-amber-400 underline font-semibold">
+                    If the Plex window didn't open, click here to authorize
+                </a>
+            </div>
+        </div>
+
+        <p class="text-center text-xs text-slate-500 mt-6">
+            Powered by Plex OAuth. Your Plex password is never seen by Mindarr.
+        </p>
+    </div>
+
+    <script>
+        let poller = null;
+        let expiryTimer = null;
+
+        function setStatus(kind, message) {
+            const panel = document.getElementById('status-panel');
+            const text = document.getElementById('status-text');
+            const spinner = document.getElementById('status-spinner');
+            panel.classList.remove('hidden');
+
+            const styles = {
+                pending: ['border-slate-800 bg-slate-950/50', 'text-slate-300', true],
+                success: ['border-emerald-500/30 bg-emerald-500/10', 'text-emerald-400', false],
+                error:   ['border-rose-500/30 bg-rose-500/10', 'text-rose-400', false],
+            };
+            const [panelCls, textCls, showSpinner] = styles[kind] || styles.pending;
+            panel.className = 'rounded-xl border p-4 space-y-3 ' + panelCls;
+            text.className = 'text-sm font-medium ' + textCls;
+            text.textContent = message;
+            spinner.classList.toggle('hidden', !showSpinner);
+        }
+
+        function resetButton() {
+            const btn = document.getElementById('login-btn');
+            btn.disabled = false;
+            document.getElementById('login-btn-text').textContent = 'Sign in with Plex';
+        }
+
+        function stopPolling() {
+            if (poller) { clearInterval(poller); poller = null; }
+            if (expiryTimer) { clearTimeout(expiryTimer); expiryTimer = null; }
+        }
+
+        async function startLogin() {
+            const btn = document.getElementById('login-btn');
+            stopPolling();
+            btn.disabled = true;
+            document.getElementById('login-btn-text').textContent = 'Connecting…';
+            document.getElementById('pin-row').classList.add('hidden');
+            document.getElementById('auth-link').classList.add('hidden');
+            setStatus('pending', 'Requesting a secure linking code from Plex…');
+
+            let data;
+            try {
+                const res = await fetch('/api/auth/start', { method: 'POST' });
+                data = await res.json();
+            } catch (err) {
+                setStatus('error', 'Could not reach the server. Please try again.');
+                resetButton();
+                return;
+            }
+
+            if (!data || data.error) {
+                setStatus('error', 'Error: ' + ((data && data.error) || 'Unknown error'));
+                resetButton();
+                return;
+            }
+
+            // Show the PIN code and manual link
+            const pinRow = document.getElementById('pin-row');
+            const pinCode = document.getElementById('pin-code');
+            const authLink = document.getElementById('auth-link');
+            if (data.code) {
+                pinCode.textContent = data.code;
+                pinRow.classList.remove('hidden');
+            }
+            authLink.href = data.auth_url;
+            authLink.classList.remove('hidden');
+
+            // Attempt to open the Plex auth window
+            const win = window.open(data.auth_url, '_blank');
+            if (!win) {
+                setStatus('pending', 'Popup blocked — use the link below to authorize on plex.tv.');
+            } else {
+                setStatus('pending', 'Waiting for you to authorize on plex.tv…');
+            }
+            document.getElementById('login-btn-text').textContent = 'Waiting…';
+
+            // Expiry guard
+            const expiresMs = ((data.expires_in || 1800) * 1000);
+            expiryTimer = setTimeout(() => {
+                stopPolling();
+                setStatus('error', 'This linking code expired. Click “Sign in with Plex” to try again.');
+                resetButton();
+            }, expiresMs);
+
+            // Poll for claim
+            poller = setInterval(async () => {
+                let pollData;
+                try {
+                    const form = new FormData();
+                    form.append('pin_id', data.id);
+                    const pollRes = await fetch('/api/auth/poll', { method: 'POST', body: form });
+                    pollData = await pollRes.json();
+                } catch (err) {
+                    return; // transient; keep polling until expiry
+                }
+
+                if (!pollData.claimed) return;
+
+                stopPolling();
+
+                if (pollData.authorized === false) {
+                    setStatus('error', pollData.message || 'You do not have access to this Plex server.');
+                    resetButton();
+                    return;
+                }
+
+                const roleMsg = pollData.is_admin
+                    ? 'Administrator verified. Redirecting to setup…'
+                    : 'Signed in. Redirecting…';
+                setStatus('success', roleMsg);
+                document.getElementById('login-btn-text').textContent = 'Success';
+                setTimeout(() => {
+                    window.location.href = pollData.redirect || '/';
+                }, 900);
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

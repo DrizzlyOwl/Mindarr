@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Mindarr{% endblock %} - Discovery Engine</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        plex: '#E5A00D',
+                        plexDark: '#CC8A00',
+                        imdb: '#F5C518',
+                        darkBg: '#0f172a',
+                        cardBg: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Heroicons / FontAwesome via SVG -->
+    <style>
+        body { background-color: #0b0f19; color: #f1f5f9; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#0b0f19] text-slate-100">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800 bg-[#111827]/90 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <!-- Brand & Logo -->
+            <div class="flex items-center space-x-3">
+                <a href="/" class="flex items-center space-x-2.5 group">
+                    <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-amber-500 to-yellow-400 flex items-center justify-center shadow-lg shadow-amber-500/20 group-hover:scale-105 transition">
+                        <svg class="w-5 h-5 text-gray-900 fill-current" viewBox="0 0 24 24">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                    </div>
+                    <span class="font-bold text-lg tracking-tight text-white group-hover:text-amber-400 transition">Mind<span class="text-amber-400 font-extrabold">arr</span></span>
+                </a>
+                <span class="hidden lg:inline-flex text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/80">TrueNAS Edition</span>
+            </div>
+
+            <!-- Primary Navigation Links (Desktop) -->
+            <nav class="hidden md:flex items-center space-x-1 lg:space-x-2">
+                <!-- Dashboard with Dropdown Submenu -->
+                <div class="relative group" id="dashboard-nav-group">
+                    <a href="/" class="px-3 py-2 rounded-lg text-sm font-medium transition inline-flex items-center space-x-1.5 {% if request.url.path == '/' or request.url.path.startswith('/community') or request.url.path.startswith('/sources') %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %}">
+                        <span>Dashboard</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-400 transition-transform duration-200 group-hover:rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </a>
+                    <div class="absolute left-0 mt-1.5 w-48 rounded-xl bg-slate-900/95 border border-slate-800 shadow-2xl py-1.5 hidden group-hover:block z-50 backdrop-blur">
+                        <a href="/" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold transition {% if request.url.path == '/' %}text-amber-400 bg-slate-800/60{% else %}text-slate-300 hover:text-white hover:bg-slate-800/40{% endif %}">
+                            <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+                            </svg>
+                            <span>Viewing Trends</span>
+                        </a>
+                        <a href="/community/" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold transition {% if request.url.path.startswith('/community') %}text-amber-400 bg-slate-800/60{% else %}text-slate-300 hover:text-white hover:bg-slate-800/40{% endif %}">
+                            <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v1h8v-1zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 16v-1a4 4 0 00-3-3.87" />
+                            </svg>
+                            <span>Community</span>
+                        </a>
+                        <a href="/sources/" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold transition {% if request.url.path.startswith('/sources') %}text-amber-400 bg-slate-800/60{% else %}text-slate-300 hover:text-white hover:bg-slate-800/40{% endif %}">
+                            <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm1 7a1 1 0 00-1 1v2a1 1 0 001 1h12a1 1 0 001-1v-2a1 1 0 00-1-1H4z" clip-rule="evenodd" />
+                            </svg>
+                            <span>Sources</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Recommendations -->
+                {% if recs_ready %}
+                <a href="/recommendations" class="px-3 py-2 rounded-lg text-sm font-medium transition {% if request.url.path == '/recommendations' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %}">
+                    Recommendations
+                </a>
+                {% else %}
+                <span class="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 cursor-not-allowed select-none inline-flex items-center space-x-1.5" title="Available after your initial watch history sync completes" aria-disabled="true">
+                    <span>Recommendations</span>
+                    <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                </span>
+                {% endif %}
+            </nav>
+
+            <!-- Header Actions: Quick Sync, User Profile Menu, and Mobile Hamburger -->
+            <div class="flex items-center space-x-2 sm:space-x-3">
+                <!-- Quick Sync Action -->
+                <button id="nav-sync-btn" onclick="triggerNavSync()" title="Sync watch history" class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed transition">
+                    <svg id="sync-spinner" class="w-3.5 h-3.5 fill-none stroke-current" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Sync</span>
+                </button>
+
+                {% if current_user %}
+                <!-- User Profile Dropdown Menu Container -->
+                <div class="relative" id="user-menu-container">
+                    <button id="user-menu-button" onclick="toggleUserMenu()" class="flex items-center space-x-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40 transition">
+                        {% if current_user.thumb %}
+                        <img src="{{ current_user.thumb }}" alt="" class="w-6 h-6 rounded-full border border-slate-600 object-cover">
+                        {% else %}
+                        <div class="w-6 h-6 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-bold flex items-center justify-center">
+                            {{ (current_user.title or current_user.username)[:1]|upper }}
+                        </div>
+                        {% endif %}
+                        <span class="hidden sm:inline text-xs font-medium text-slate-200 max-w-[120px] truncate">{{ current_user.title or current_user.username }}</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" id="user-menu-chevron" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                    </button>
+
+                    <!-- Dropdown Panel -->
+                    <div id="user-menu-dropdown" class="hidden absolute right-0 mt-2 w-72 rounded-2xl bg-slate-900/95 border border-slate-800 shadow-2xl backdrop-blur py-2 z-50 divide-y divide-slate-800/80">
+                        <!-- User Identity Header -->
+                        <div class="px-4 py-3 flex items-center space-x-3">
+                            {% if current_user.thumb %}
+                            <img src="{{ current_user.thumb }}" alt="" class="w-10 h-10 rounded-full border border-slate-700 object-cover shrink-0">
+                            {% else %}
+                            <div class="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 font-bold flex items-center justify-center shrink-0">
+                                {{ (current_user.title or current_user.username)[:1]|upper }}
+                            </div>
+                            {% endif %}
+                            <div class="min-w-0 flex-1">
+                                <div class="text-sm font-semibold text-white truncate">{{ current_user.title or current_user.username }}</div>
+                                <div class="flex items-center space-x-1.5 mt-0.5">
+                                    {% if current_user.is_admin %}
+                                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">Administrator</span>
+                                    {% else %}
+                                    <span class="text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">Plex User</span>
+                                    {% endif %}
+                                    {% if current_user.email %}
+                                    <span class="text-xs text-slate-500 truncate" title="{{ current_user.email }}">{{ current_user.email }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Preferences: Low-Bandwidth Mode -->
+                        <div class="px-4 py-3">
+                            <label class="flex items-center justify-between cursor-pointer group" title="Disables poster image downloads to save bandwidth">
+                                <div class="flex items-center space-x-2.5">
+                                    <div class="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-amber-400 transition">
+                                        <svg class="w-4 h-4 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <div class="text-xs font-semibold text-slate-200 group-hover:text-white transition">Low-Bandwidth Mode</div>
+                                        <div class="text-[10px] text-slate-400">Hide posters to save data</div>
+                                    </div>
+                                </div>
+                                <div class="relative inline-flex items-center">
+                                    <input type="checkbox" id="low-bandwidth-toggle" onchange="toggleLowBandwidth(this.checked)" class="sr-only peer" {% if low_bandwidth %}checked{% endif %}>
+                                    <div class="w-8 h-4.5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-500"></div>
+                                </div>
+                            </label>
+                        </div>
+
+                        {% if current_user.is_admin %}
+                        <!-- Admin Navigation Links -->
+                        <div class="py-1.5">
+                            <div class="px-4 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Settings</div>
+                            <a href="/settings" class="flex items-center space-x-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition {% if request.url.path == '/settings' %}text-amber-400 bg-slate-800/40{% endif %}">
+                                <svg class="w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                                </svg>
+                                <span>Configuration</span>
+                            </a>
+                            <a href="/settings/jobs" class="flex items-center space-x-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition {% if request.url.path == '/settings/jobs' %}text-amber-400 bg-slate-800/40{% endif %}">
+                                <svg class="w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                                </svg>
+                                <span>Jobs</span>
+                            </a>
+                            <a href="/settings/system" class="flex items-center space-x-2.5 px-4 py-2 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition {% if request.url.path == '/settings/system' %}text-amber-400 bg-slate-800/40{% endif %}">
+                                <svg class="w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm14 1a1 1 0 11-2 0 1 1 0 012 0zM2 13a2 2 0 012-2h12a2 2 0 012 2v2a2 2 0 01-2 2H4a2 2 0 01-2-2v-2zm14 1a1 1 0 11-2 0 1 1 0 012 0z" clip-rule="evenodd" />
+                                </svg>
+                                <span>System</span>
+                            </a>
+                        </div>
+                        {% endif %}
+
+                        <!-- Logout Action -->
+                        <div class="py-1.5">
+                            <a href="/logout" class="flex items-center space-x-2.5 px-4 py-2 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition">
+                                <svg class="w-4 h-4 stroke-current stroke-2 fill-none" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                                <span>Sign Out</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Mobile Menu Toggle Button (Hamburger) -->
+                <button id="mobile-menu-button" onclick="toggleMobileMenu()" class="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 focus:outline-none transition" aria-label="Toggle Navigation Menu">
+                    <svg id="hamburger-icon" class="w-6 h-6 fill-none stroke-current" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                    <svg id="close-icon" class="w-6 h-6 fill-none stroke-current hidden" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile Collapsible Menu Panel -->
+        <div id="mobile-menu" class="hidden md:hidden border-t border-slate-800 bg-[#111827] px-4 pt-3 pb-4 space-y-3">
+            <div class="space-y-1">
+                <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Dashboard</div>
+                <a href="/" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path == '/' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Viewing Trends</span>
+                </a>
+                <a href="/community/" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path.startswith('/community') %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Community</span>
+                </a>
+                <a href="/sources/" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path.startswith('/sources') %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Sources</span>
+                </a>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/80 space-y-1">
+                <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Discovery</div>
+                {% if recs_ready %}
+                <a href="/recommendations" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path == '/recommendations' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Recommendations</span>
+                </a>
+                {% else %}
+                <span class="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 cursor-not-allowed select-none">
+                    <span>Recommendations</span>
+                    <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                </span>
+                {% endif %}
+            </div>
+
+            {% if current_user and current_user.is_admin %}
+            <div class="pt-2 border-t border-slate-800/80 space-y-1">
+                <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Settings</div>
+                <a href="/settings" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path == '/settings' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Configuration</span>
+                </a>
+                <a href="/settings/jobs" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path == '/settings/jobs' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>Jobs</span>
+                </a>
+                <a href="/settings/system" class="flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-medium {% if request.url.path == '/settings/system' %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-white{% endif %}">
+                    <span>System</span>
+                </a>
+            </div>
+            {% endif %}
+
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between px-2 py-2">
+                <div class="text-xs text-slate-300 font-medium">Low-Bandwidth Mode</div>
+                <input type="checkbox" id="low-bandwidth-toggle-mobile" onchange="toggleLowBandwidth(this.checked)" class="sr-only peer" {% if low_bandwidth %}checked{% endif %}>
+                <label for="low-bandwidth-toggle-mobile" class="relative inline-flex items-center cursor-pointer">
+                    <div class="w-8 h-4.5 bg-slate-700 rounded-full peer-checked:after:translate-x-3.5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+            </div>
+
+            {% if current_user %}
+            <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between px-2 pt-2">
+                <div class="flex items-center space-x-2">
+                    {% if current_user.thumb %}
+                    <img src="{{ current_user.thumb }}" alt="" class="w-6 h-6 rounded-full border border-slate-600">
+                    {% endif %}
+                    <span class="text-xs text-slate-300 font-medium">{{ current_user.title or current_user.username }}</span>
+                </div>
+                <a href="/logout" class="text-xs text-rose-400 font-semibold hover:text-rose-300">Sign Out</a>
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 bg-[#0d121f] py-6 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div>
+                Mindarr — Watch History Analyzer &amp; Discovery Engine
+            </div>
+            <div class="flex items-center space-x-4">
+                <span>Plex API</span>
+                <span>•</span>
+                <span>The Movie Database (TMDb)</span>
+                <span>•</span>
+                <span>IMDb Verified</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-[100] flex flex-col items-end space-y-2"></div>
+
+    <script>
+        let activeSyncToast = null;
+
+        function updateSyncToast(message, progress) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const prog = Math.min(100, Math.max(0, parseFloat(progress) || 0));
+            const content = `
+                <div class="flex items-start space-x-3 w-full">
+                    <svg class="w-4 h-4 text-amber-400 animate-spin shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-xs font-bold text-amber-300">Syncing History</span>
+                            <span class="text-[10px] font-mono text-amber-400/90 font-bold">${Math.round(prog)}%</span>
+                        </div>
+                        <p class="text-xs text-slate-200 mt-0.5 truncate" title="${message || ''}">${message || 'Working...'}</p>
+                        <div class="w-full bg-slate-700/80 rounded-full h-1.5 mt-2 overflow-hidden">
+                            <div class="bg-gradient-to-r from-amber-500 to-yellow-400 h-1.5 rounded-full transition-all duration-300 ease-out" style="width: ${prog}%"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (!activeSyncToast) {
+                activeSyncToast = document.createElement('div');
+                activeSyncToast.className = 'w-80 p-3.5 rounded-xl border border-amber-500/40 bg-slate-900/95 backdrop-blur shadow-2xl transition-all duration-300 translate-y-2 opacity-0 z-[100]';
+                container.appendChild(activeSyncToast);
+                requestAnimationFrame(() => {
+                    activeSyncToast.classList.remove('translate-y-2', 'opacity-0');
+                });
+            }
+            activeSyncToast.innerHTML = content;
+        }
+
+        function removeSyncToast() {
+            if (activeSyncToast) {
+                const el = activeSyncToast;
+                activeSyncToast = null;
+                el.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => el.remove(), 300);
+            }
+        }
+
+        function showToast(message, kind = 'info', duration = 4000) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const styles = {
+                info:    'bg-slate-800 border-slate-600 text-slate-100',
+                success: 'bg-emerald-600/90 border-emerald-400/40 text-white',
+                error:   'bg-rose-600/90 border-rose-400/40 text-white',
+                progress:'bg-slate-800 border-amber-500/40 text-amber-300',
+            };
+            const toast = document.createElement('div');
+            toast.className = `flex items-center space-x-2 px-4 py-2.5 rounded-xl border shadow-lg text-sm font-medium max-w-sm transition-all duration-300 translate-y-2 opacity-0 ${styles[kind] || styles.info}`;
+            toast.innerHTML = `<span>${message}</span>`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+            if (duration > 0) {
+                setTimeout(() => {
+                    toast.classList.add('opacity-0', 'translate-y-2');
+                    setTimeout(() => toast.remove(), 300);
+                }, duration);
+            }
+            return toast;
+        }
+
+        // User menu & Mobile navigation toggles
+        function toggleUserMenu() {
+            const dropdown = document.getElementById('user-menu-dropdown');
+            const chevron = document.getElementById('user-menu-chevron');
+            if (!dropdown) return;
+            const isOpen = !dropdown.classList.contains('hidden');
+            if (isOpen) {
+                dropdown.classList.add('hidden');
+                if (chevron) chevron.classList.remove('rotate-180');
+            } else {
+                dropdown.classList.remove('hidden');
+                if (chevron) chevron.classList.add('rotate-180');
+            }
+        }
+
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            const hamburger = document.getElementById('hamburger-icon');
+            const close = document.getElementById('close-icon');
+            if (!menu) return;
+            const isOpen = !menu.classList.contains('hidden');
+            if (isOpen) {
+                menu.classList.add('hidden');
+                if (hamburger) hamburger.classList.remove('hidden');
+                if (close) close.classList.add('hidden');
+            } else {
+                menu.classList.remove('hidden');
+                if (hamburger) hamburger.classList.add('hidden');
+                if (close) close.classList.remove('hidden');
+            }
+        }
+
+        // Close menus on outside click or Escape key
+        document.addEventListener('click', function(event) {
+            const container = document.getElementById('user-menu-container');
+            const dropdown = document.getElementById('user-menu-dropdown');
+            const chevron = document.getElementById('user-menu-chevron');
+            if (container && dropdown && !dropdown.classList.contains('hidden')) {
+                if (!container.contains(event.target)) {
+                    dropdown.classList.add('hidden');
+                    if (chevron) chevron.classList.remove('rotate-180');
+                }
+            }
+        });
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                const dropdown = document.getElementById('user-menu-dropdown');
+                const chevron = document.getElementById('user-menu-chevron');
+                if (dropdown && !dropdown.classList.contains('hidden')) {
+                    dropdown.classList.add('hidden');
+                    if (chevron) chevron.classList.remove('rotate-180');
+                }
+                const mobileMenu = document.getElementById('mobile-menu');
+                const hamburger = document.getElementById('hamburger-icon');
+                const close = document.getElementById('close-icon');
+                if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
+                    mobileMenu.classList.add('hidden');
+                    if (hamburger) hamburger.classList.remove('hidden');
+                    if (close) close.classList.add('hidden');
+                }
+            }
+        });
+
+        function toggleLowBandwidth(enabled) {
+            document.cookie = "low_bandwidth=" + (enabled ? "true" : "false") + "; path=/; max-age=31536000; SameSite=Lax";
+            window.location.reload();
+        }
+
+        async function triggerNavSync() {
+            const btn = document.getElementById('nav-sync-btn');
+            const spinner = document.getElementById('sync-spinner');
+            if (btn.disabled) return;  // guard against double-clicks
+            spinner.classList.add('animate-spin');
+            btn.disabled = true;
+
+            try {
+                updateSyncToast('Initiating sync...', 5);
+                const res = await fetch('/api/sync', { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (res.status === 409 || data.status === 'already_syncing') {
+                    removeSyncToast();
+                    showToast(data.message || 'A sync is already running…', 'progress');
+                } else if (!res.ok) {
+                    spinner.classList.remove('animate-spin');
+                    btn.disabled = false;
+                    removeSyncToast();
+                    showToast(data.message || data.error || 'Failed to start sync.', 'error');
+                    return;
+                }
+                pollSyncStatus();
+            } catch (err) {
+                spinner.classList.remove('animate-spin');
+                btn.disabled = false;
+                removeSyncToast();
+                showToast('Failed to start sync: ' + err, 'error');
+            }
+        }
+
+        function pollSyncStatus() {
+            const spinner = document.getElementById('sync-spinner');
+            const btn = document.getElementById('nav-sync-btn');
+
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/sync/status');
+                    const data = await res.json();
+                    if (data.is_syncing) {
+                        updateSyncToast(data.status, data.progress);
+                    } else {
+                        clearInterval(interval);
+                        spinner.classList.remove('animate-spin');
+                        btn.disabled = false;
+                        removeSyncToast();
+                        if (data.error) {
+                            showToast('Sync failed: ' + data.error, 'error', 6000);
+                        } else {
+                            showToast('Sync complete — refreshing…', 'success', 2500);
+                            setTimeout(() => window.location.reload(), 1400);
+                        }
+                    }
+                } catch (e) {
+                    clearInterval(interval);
+                    spinner.classList.remove('animate-spin');
+                    btn.disabled = false;
+                    removeSyncToast();
+                    showToast('Lost connection while syncing.', 'error');
+                }
+            }, 1000);
+        }
+
+        // On load, reflect any in-progress sync so the button stays locked.
+        (async function initSyncState() {
+            const btn = document.getElementById('nav-sync-btn');
+            const spinner = document.getElementById('sync-spinner');
+            if (!btn) return;
+            try {
+                const res = await fetch('/api/sync/status');
+                const data = await res.json();
+                if (data.is_syncing) {
+                    btn.disabled = true;
+                    spinner.classList.add('animate-spin');
+                    updateSyncToast(data.status, data.progress);
+                    pollSyncStatus();
+                }
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
+</body>
+</html>

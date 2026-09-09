@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+
+{% block title %}System{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+    <div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">Configuration & Sync</h1>
+        <p class="text-sm text-slate-400 mt-1">Database footprint and per-user data management.</p>
+    </div>
+
+    <!-- Settings sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/settings" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Configuration</a>
+        <a href="/settings/jobs" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/jobs' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Jobs</a>
+        <a href="/settings/system" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/system' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">System</a>
+    </div>
+
+    {% if request.query_params.get('cleared') %}
+    <div class="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm px-4 py-3 rounded-xl">
+        User data cleared successfully.
+    </div>
+    {% endif %}
+
+    <!-- Database Footprint -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-white">Database Footprint</h2>
+                <p class="text-xs text-slate-400">SQLite storage usage and row counts</p>
+            </div>
+            <div class="text-right">
+                <div class="text-2xl font-black text-amber-400">{{ (db_stats.size_bytes / 1048576) | round(2) }} MB</div>
+                <div class="text-[11px] text-slate-500">{{ '{:,}'.format(db_stats.total_rows) }} total rows</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {% for tbl, cnt in db_stats.tables.items() %}
+            <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                <div class="text-[11px] text-slate-400 font-mono truncate" title="{{ tbl }}">{{ tbl }}</div>
+                <div class="text-lg font-bold text-white mt-0.5">{{ '{:,}'.format(cnt) }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Per-User Data -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800">
+            <h2 class="text-lg font-bold text-white">User Data</h2>
+            <p class="text-xs text-slate-400">Per-user footprint, last activity, and data management</p>
+        </div>
+
+        {% if not user_data %}
+        <div class="px-6 py-12 text-center text-sm text-slate-500">No users yet.</div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-800">
+                        <th class="px-6 py-3 font-semibold">User</th>
+                        <th class="px-4 py-3 font-semibold">Watched Items</th>
+                        <th class="px-4 py-3 font-semibold">Play Events</th>
+                        <th class="px-4 py-3 font-semibold">Seen IDs</th>
+                        <th class="px-4 py-3 font-semibold">Last Seen</th>
+                        <th class="px-6 py-3 font-semibold text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/70">
+                    {% for u in user_data %}
+                    <tr class="hover:bg-slate-800/30">
+                        <td class="px-6 py-3">
+                            <div class="flex items-center space-x-2">
+                                {% if u.thumb %}<img src="{{ u.thumb }}" alt="" class="w-6 h-6 rounded-full border border-slate-700">{% endif %}
+                                <div>
+                                    <div class="font-medium text-slate-200">{{ u.title or u.username or u.user_key }}{% if u.is_admin %} <span class="text-[10px] text-amber-400 font-bold uppercase">Admin</span>{% endif %}</div>
+                                    {% if u.email %}<div class="text-[11px] text-slate-500">{{ u.email }}</div>{% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-slate-300 font-mono text-xs">{{ '{:,}'.format(u.media_count) }}</td>
+                        <td class="px-4 py-3 text-slate-300 font-mono text-xs">{{ '{:,}'.format(u.event_count) }}</td>
+                        <td class="px-4 py-3 text-slate-300 font-mono text-xs">{{ '{:,}'.format(u.seen_count) }}</td>
+                        <td class="px-4 py-3 text-slate-400 font-mono text-xs whitespace-nowrap">{{ (u.last_login or '')[:19]|replace('T', ' ') or '—' }}</td>
+                        <td class="px-6 py-3 text-right">
+                            {% if u.media_count or u.event_count or u.seen_count %}
+                            <form method="POST" action="/api/system/clear-user" onsubmit="return confirm('Clear all watch data for {{ (u.title or u.username or u.user_key)|e }}? Their account stays, but recommendations reset.');">
+                                <input type="hidden" name="user_key" value="{{ u.user_key }}">
+                                <button type="submit" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 text-xs font-semibold transition">
+                                    Clear Data
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-[11px] text-slate-600">No data</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,343 @@
+{% extends "layout.html" %}
+
+{% block title %}Settings & Connection{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+
+    <div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">Configuration & Sync</h1>
+        <p class="text-sm text-slate-400 mt-1">Manage your Plex connection, discovery API keys, Overseerr integration, and data sync.</p>
+    </div>
+
+    <!-- Settings sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/settings" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Configuration</a>
+        <a href="/settings/jobs" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/jobs' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Jobs</a>
+        <a href="/settings/system" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/system' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">System</a>
+    </div>
+
+    <!-- Alert if settings saved -->
+    {% if request.query_params.get('saved') %}
+    <div class="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm px-4 py-3 rounded-xl">
+        Settings updated and saved to configuration.
+    </div>
+    {% endif %}
+
+    <!-- 1. Plex Connection Box -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">
+                    P
+                </div>
+                <div>
+                    <h2 class="text-lg font-bold text-white">Plex Media Server</h2>
+                    <p class="text-xs text-slate-400">Connection to your historic watch logs and library</p>
+                </div>
+            </div>
+
+            <!-- Connection Status -->
+            <div>
+                {% if connected %}
+                <span class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>{{ conn_msg }}</span>
+                </span>
+                {% else %}
+                <span class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                    <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                    <span>Not Connected</span>
+                </span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 1-Click Plex Login Wizard -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>
+                <h3 class="text-sm font-semibold text-white">1-Click Browser Authentication</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Authorize Plex via your browser without needing to hunt down tokens.</p>
+            </div>
+            <button type="button" onclick="startPlexAuth()" id="plex-auth-btn" class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">
+                <span>Authorize with Plex</span>
+            </button>
+        </div>
+
+        <!-- Auth Modal / Status Overlay (hidden by default) -->
+        <div id="auth-modal" class="hidden bg-slate-950 border border-amber-500/30 rounded-xl p-5 space-y-4">
+            <div class="flex items-center space-x-3">
+                <div class="animate-spin text-amber-400">
+                    <svg class="w-5 h-5 fill-none stroke-current" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <div class="text-sm font-bold text-white">Waiting for Plex Authorization...</div>
+                    <div class="text-xs text-slate-400">A new tab should open. Click "Sign In" or "Authorize" on plex.tv.</div>
+                </div>
+            </div>
+            <div class="pt-2">
+                <a id="auth-link" href="#" target="_blank" class="text-xs text-amber-400 underline font-semibold">
+                    Click here if the window did not open automatically
+                </a>
+            </div>
+        </div>
+
+        <!-- Form for All Settings -->
+        <form method="POST" action="/api/settings/save" class="space-y-6 pt-2 border-t border-slate-800">
+
+            {% set locked_keys = [] %}
+            {% for k, v in env_locked.items() %}{% if v %}{{ locked_keys.append(k) or '' }}{% endif %}{% endfor %}
+            {% if locked_keys %}
+            <div class="bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs px-4 py-3 rounded-xl flex items-start space-x-2">
+                <svg class="w-4 h-4 fill-current shrink-0 mt-0.5" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
+                <div>
+                    <span class="font-semibold">Some settings are managed by environment variables</span> and are locked here.
+                    Set via Docker/host env: <span class="font-mono text-sky-200">{{ locked_keys|join(', ') }}</span>.
+                    To change them, update your container environment.
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Plex Server URL</label>
+                    <input type="text" name="plex_url" value="{{ settings.plex_url }}" {% if env_locked.PLEX_URL %}disabled{% endif %} class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                    {% if env_locked.PLEX_URL %}<span class="text-[11px] text-sky-400">Managed by env var PLEX_URL</span>{% else %}<span class="text-[11px] text-slate-500">e.g., https://10.255.10.30:32400</span>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Plex Token (X-Plex-Token)</label>
+                    <input type="password" name="plex_token" value="{{ settings.plex_token or '' }}" {% if env_locked.PLEX_TOKEN %}disabled{% endif %} placeholder="Automatically set via button above or paste here" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                    {% if env_locked.PLEX_TOKEN %}<span class="text-[11px] text-sky-400">Managed by env var PLEX_TOKEN</span>{% endif %}
+                </div>
+            </div>
+
+            <!-- 2. TMDb API Key Box -->
+            <div class="pt-4 border-t border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="block text-xs font-semibold text-slate-300">The Movie Database (TMDb) API Key</label>
+                    <a href="https://www.themoviedb.org/settings/api" target="_blank" class="text-xs text-amber-400 hover:underline">Get Free Key &rarr;</a>
+                </div>
+                <input type="password" name="tmdb_api_key" value="{{ settings.tmdb_api_key or '' }}" {% if env_locked.TMDB_API_KEY %}disabled{% endif %} placeholder="Enter TMDb API Key or Bearer Token" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                {% if env_locked.TMDB_API_KEY %}<span class="text-[11px] text-sky-400">Managed by env var TMDB_API_KEY</span>{% endif %}
+                <p class="text-[11px] text-slate-500">Required to query external movies/shows, genre graphs, and cross-reference IMDb links.</p>
+            </div>
+
+            <!-- 3. Overseerr Integration Box -->
+            <div class="pt-4 border-t border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-6 h-6 rounded-md bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs font-bold">
+                            O
+                        </div>
+                        <h3 class="text-sm font-bold text-white">Overseerr Integration</h3>
+                    </div>
+
+                    <!-- Overseerr Status Badge -->
+                    <div>
+                        {% if overseerr_connected %}
+                        <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>{{ overseerr_msg }}</span>
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                            <span>{{ overseerr_msg }}</span>
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Overseerr URL</label>
+                        <input type="text" name="overseerr_url" value="{{ settings.overseerr_url }}" {% if env_locked.OVERSEERR_URL %}disabled{% endif %} class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.OVERSEERR_URL %}<span class="text-[11px] text-sky-400">Managed by env var OVERSEERR_URL</span>{% endif %}
+                        <span class="text-[11px] text-slate-500">Default: http://10.255.10.30:5055</span>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-semibold text-slate-300">Overseerr API Key</label>
+                            <span class="text-[11px] text-slate-400">Overseerr &rarr; Settings &rarr; General</span>
+                        </div>
+                        <input type="password" name="overseerr_api_key" value="{{ settings.overseerr_api_key or '' }}" {% if env_locked.OVERSEERR_API_KEY %}disabled{% endif %} placeholder="Paste API Key here" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.OVERSEERR_API_KEY %}<span class="text-[11px] text-sky-400">Managed by env var OVERSEERR_API_KEY</span>{% endif %}
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-400">Enables 1-click requests on Overseerr directly from your recommendation cards.</p>
+            </div>
+
+            <!-- Tautulli Integration -->
+            <div class="pt-4 border-t border-slate-800 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-6 h-6 rounded-md bg-orange-500/20 text-orange-400 flex items-center justify-center text-xs font-bold">
+                            T
+                        </div>
+                        <h3 class="text-sm font-bold text-white">Tautulli Integration</h3>
+                    </div>
+
+                    <div>
+                        {% if tautulli_connected %}
+                        <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                            <span>{{ tautulli_msg }}</span>
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                            <span>{{ tautulli_msg }}</span>
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if tautulli_server_mismatch %}
+                <div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs px-3 py-2.5 rounded-lg flex items-start space-x-2">
+                    <svg class="w-4 h-4 fill-current shrink-0 mt-0.5" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    <span>This Tautulli instance is not monitoring the linked Plex server. Its watch history will be ignored for recommendations. Point Tautulli at the same server the administrator linked, or update the linked server.</span>
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Tautulli URL</label>
+                        <input type="text" name="tautulli_url" value="{{ settings.tautulli_url }}" {% if env_locked.TAUTULLI_URL %}disabled{% endif %} placeholder="http://10.255.10.30:8181" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-orange-500 focus:border-orange-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.TAUTULLI_URL %}<span class="text-[11px] text-sky-400">Managed by env var TAUTULLI_URL</span>{% endif %}
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-semibold text-slate-300">Tautulli API Key</label>
+                            <span class="text-[11px] text-slate-400">Tautulli &rarr; Settings &rarr; Web Interface</span>
+                        </div>
+                        <input type="password" name="tautulli_api_key" value="{{ settings.tautulli_api_key or '' }}" {% if env_locked.TAUTULLI_API_KEY %}disabled{% endif %} placeholder="Paste API Key here" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-orange-500 focus:border-orange-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.TAUTULLI_API_KEY %}<span class="text-[11px] text-sky-400">Managed by env var TAUTULLI_API_KEY</span>{% endif %}
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-400">Optional. Provides complete per-user watch history for recommendations. If left blank, no history enrichment occurs.</p>
+            </div>
+
+            <!-- Background Automation Schedules -->
+            <div class="border-t border-slate-800/80 pt-5 space-y-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-white">Background Automation</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Control the recurrence intervals for background data synchronization and recommendation pre-computation.</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Plex &amp; Tautulli Sync Interval (Hours)</label>
+                        <input type="number" min="1" max="168" name="auto_sync_hours" value="{{ settings.auto_sync_hours }}" {% if env_locked.AUTO_SYNC_HOURS %}disabled{% endif %} class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.AUTO_SYNC_HOURS %}<span class="text-[11px] text-sky-400">Managed by env var AUTO_SYNC_HOURS</span>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Recommendations Pre-Fetch Interval (Hours)</label>
+                        <input type="number" min="1" max="168" name="auto_recommendations_hours" value="{{ settings.auto_recommendations_hours }}" {% if env_locked.AUTO_RECOMMENDATIONS_HOURS %}disabled{% endif %} class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                        {% if env_locked.AUTO_RECOMMENDATIONS_HOURS %}<span class="text-[11px] text-sky-400">Managed by env var AUTO_RECOMMENDATIONS_HOURS</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">
+                    Save Settings
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 4. Manual Sync & Database Status -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-white">Data Synchronization</h2>
+                <p class="text-xs text-slate-400">Syncs watch history and library items into local SQLite database</p>
+            </div>
+            <button type="button" onclick="triggerNavSync()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-bold text-xs transition flex items-center space-x-2">
+                <span>Sync Now</span>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div class="text-xs text-slate-400">Last Synced</div>
+                <div class="text-sm font-semibold text-white mt-1">{{ stats.last_sync or 'Never' }}</div>
+            </div>
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div class="text-xs text-slate-400">Total Play Events</div>
+                <div class="text-sm font-semibold text-white mt-1">{{ stats.events_count }}</div>
+            </div>
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div class="text-xs text-slate-400">Movies Cached</div>
+                <div class="text-sm font-semibold text-white mt-1">{{ stats.movies_count }}</div>
+            </div>
+            <div class="bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                <div class="text-xs text-slate-400">Shows Cached</div>
+                <div class="text-sm font-semibold text-white mt-1">{{ stats.shows_count }}</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    async function startPlexAuth() {
+        const btn = document.getElementById('plex-auth-btn');
+        const modal = document.getElementById('auth-modal');
+        const link = document.getElementById('auth-link');
+
+        btn.disabled = true;
+        btn.innerText = 'Requesting...';
+
+        try {
+            const res = await fetch('/api/auth/start', { method: 'POST' });
+            const data = await res.json();
+            if (data.error) {
+                alert('Auth error: ' + data.error);
+                btn.disabled = false;
+                btn.innerText = 'Authorize with Plex';
+                return;
+            }
+
+            modal.classList.remove('hidden');
+            link.href = data.auth_url;
+
+            // Open auth window in new popup or tab
+            window.open(data.auth_url, '_blank');
+
+            // Poll for token
+            const pinId = data.id;
+            const poller = setInterval(async () => {
+                const form = new FormData();
+                form.append('pin_id', pinId);
+
+                const pollRes = await fetch('/api/auth/poll', {
+                    method: 'POST',
+                    body: form
+                });
+                const pollData = await pollRes.json();
+
+                if (pollData.claimed) {
+                    clearInterval(poller);
+                    if (pollData.authorized === false) {
+                        modal.innerHTML = '<div class="text-rose-400 text-sm font-bold">' + (pollData.message || 'Authorization failed.') + '</div>';
+                        return;
+                    }
+                    modal.innerHTML = '<div class="text-emerald-400 text-sm font-bold">Successfully authenticated! Reloading...</div>';
+                    setTimeout(() => {
+                        window.location.href = pollData.redirect || window.location.href;
+                    }, 1500);
+                }
+            }, 2000);
+
+        } catch (err) {
+            alert('Failed to initiate Plex login: ' + err);
+            btn.disabled = false;
+            btn.innerText = 'Authorize with Plex';
+        }
+    }
+</script>
+{% endblock %}
