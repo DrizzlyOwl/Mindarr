@@ -22,9 +22,9 @@ COPY plex_recommender/ ./plex_recommender/
 # Create default config directory
 RUN mkdir -p /config
 
-EXPOSE 8080
+EXPOSE $PORT
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/ || exit 1
+  CMD curl -f http://${HOST}:${PORT}/ || exit 1
 
 ENTRYPOINT ["python", "-m", "plex_recommender"]
