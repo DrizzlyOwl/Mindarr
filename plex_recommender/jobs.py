@@ -252,7 +252,7 @@ class JobManager:
                     recommender.get_recommendations(
                         user_key=uk,
                         media_type="all",
-                        limit=18,
+                        limit=12,
                         page=1,
                         min_rating=7.0,
                         genre_filter=None,
@@ -260,6 +260,7 @@ class JobManager:
                         only_available=False,
                         include_kids=False,
                         force_refresh=True,
+                        stage="full",
                     )
                     success_count += 1
                 except Exception as e:

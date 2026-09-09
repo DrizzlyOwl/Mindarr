@@ -26,6 +26,7 @@ from plex_recommender.sync import sync_plex_data, sync_user_history
 from plex_recommender.analyzer import analyzer
 from plex_recommender.recommender import recommender
 from plex_recommender.community import community_service
+from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categories
 from plex_recommender.discovery.overseerr import overseerr
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.jobs import job_manager, JOB_DEFINITIONS
@@ -252,6 +253,23 @@ def recommendations_page(
     profile = analyzer.analyze(user["user_key"])
     selected_lang = language or "en"
 
+    # Filter categories so ONLY categories that appear in TMDb are shown
+    valid_tmdb_cats = set(get_tmdb_categories(type))
+    category_options = []
+    seen_cat = set()
+    for g in profile.get("top_genres", []):
+        raw_g = g.get("genre", "") if isinstance(g, dict) else str(g)
+        canon = to_canonical_genre(raw_g)
+        if canon and canon in valid_tmdb_cats and canon not in seen_cat:
+            seen_cat.add(canon)
+            category_options.append(canon)
+
+    tmdb_categories_map = {
+        "all": get_tmdb_categories("all"),
+        "movie": get_tmdb_categories("movie"),
+        "show": get_tmdb_categories("show"),
+    }
+
     # Surface only the setup-blocking errors up front; data errors are handled
     # by the async endpoint and rendered client-side.
     error_msg = None
@@ -266,6 +284,8 @@ def recommendations_page(
         context={
             "results": {"success": False, "recommendations": []},
             "profile": profile,
+            "category_options": category_options,
+            "tmdb_categories_map": tmdb_categories_map,
             "selected_type": type,
             "selected_genre": genre,
             "selected_language": selected_lang,
@@ -294,12 +314,13 @@ def api_recommendations(
     page: int = 1,
     available: bool = False,
     include_kids: bool = False,
-    force_refresh: bool = False
+    force_refresh: bool = False,
+    stage: str = "full"
 ):
     """Compute recommendations and return rendered card HTML + cache metadata.
 
     Called in the background by the recommendations page so the initial load
-    isn't blocked on TMDb/Plex discovery.
+    isn't blocked on TMDb/Plex discovery. Supports progressive stages ('fast' and 'full').
     """
     user = get_current_user(request)
     if not user:
@@ -326,7 +347,8 @@ def api_recommendations(
                 language=selected_lang,
                 only_available=available,
                 include_kids=include_kids,
-                force_refresh=force_refresh
+                force_refresh=force_refresh,
+                stage=stage
             )
         except Exception as e:
             logger.error(f"Recommendation generation error: {e}")
@@ -346,6 +368,8 @@ def api_recommendations(
         "html": html,
         "has_results": bool(results.get("recommendations")),
         "from_cache": bool(results.get("from_cache")),
+        "is_complete": bool(results.get("is_complete", True)),
+        "stage": results.get("stage", stage),
         "page": results.get("page", 1),
         "total_pages": results.get("total_pages", 1),
         "unseen_count": results.get("unseen_count", 0),

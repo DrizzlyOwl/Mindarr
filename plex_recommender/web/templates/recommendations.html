@@ -27,11 +27,12 @@
                     <option value="show" {% if selected_type == 'show' %}selected{% endif %}>TV Shows Only</option>
                 </select>
 
-                <!-- Genre Filter -->
+                <!-- Category Filter -->
                 <select name="genre" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">All Favored Genres</option>
-                    {% for g in profile.top_genres %}
-                    <option value="{{ g.genre }}" {% if selected_genre == g.genre %}selected{% endif %}>{{ g.genre }}</option>
+                    <option value="">All Categories</option>
+                    {% for g in category_options or profile.top_genres %}
+                    {% set g_name = g if g is string else g.genre %}
+                    <option value="{{ g_name }}" {% if selected_genre and (selected_genre == g_name or selected_genre|lower == g_name|lower) %}selected{% endif %}>{{ g_name }}</option>
                     {% endfor %}
                 </select>
 
@@ -140,10 +141,29 @@
 
         // Current page (1-based). Capped server-side at 3 page sets.
         let currentPage = parseInt(new URLSearchParams(window.location.search).get('page') || '1', 10) || 1;
+        let currentRequestId = 0;
 
-        function skeletonMarkup(statusText) {
+        const tmdbCategoriesMap = {{ (tmdb_categories_map or {}) | tojson }};
+        const favoredCategories = {{ (category_options or []) | tojson }};
+
+        function updateCategoryDropdown() {
+            if (!form || !form.genre || !form.type) return;
+            const selectedType = form.type.value;
+            const validSet = new Set(tmdbCategoriesMap[selectedType] || tmdbCategoriesMap['all'] || []);
+            const currentSelected = form.genre.value;
+            let html = '<option value="">All Categories</option>';
+            for (const cat of favoredCategories) {
+                if (validSet.size === 0 || validSet.has(cat)) {
+                    const isSel = (currentSelected === cat || currentSelected.toLowerCase() === cat.toLowerCase());
+                    html += `<option value="${cat}" ${isSel ? 'selected' : ''}>${cat}</option>`;
+                }
+            }
+            form.genre.innerHTML = html;
+        }
+
+        function skeletonCards(count) {
             let cards = '';
-            for (let i = 0; i < 6; i++) {
+            for (let i = 0; i < count; i++) {
                 cards += `
                 <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-pulse">
                     <div class="h-64 bg-slate-800/60"></div>
@@ -166,6 +186,10 @@
                     </div>
                 </div>`;
             }
+            return cards;
+        }
+
+        function skeletonMarkup(statusText) {
             const text = statusText || 'Finding unseen titles that match your taste…';
             return `
                 <div id="recs-loading" class="flex items-center justify-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 mb-6 text-sm text-slate-300">
@@ -175,7 +199,7 @@
                     </svg>
                     <span class="font-medium">${text}</span>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300" data-skeleton-grid>${cards}</div>`;
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300" data-skeleton-grid>${skeletonCards(6)}</div>`;
         }
 
         function currentParams(extra) {
@@ -215,7 +239,32 @@
             span.classList.toggle('text-slate-300', !on);
         }
 
+        function renderFastBatch(dataFast) {
+            return new Promise((resolve) => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dataFast.html || '', 'text/html');
+                const fastGrid = doc.querySelector('.grid');
+                if (!fastGrid || !fastGrid.children.length) {
+                    resolve();
+                    return;
+                }
+                const cardsHtml = fastGrid.innerHTML;
+                const statusHtml = `
+                    <div id="recs-loading" class="flex items-center justify-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3 mb-6 text-sm text-slate-300">
+                        <svg class="animate-spin w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span class="font-medium">Loaded instant discover matches. Finding deep seed recommendations…</span>
+                    </div>
+                `;
+                resultsEl.innerHTML = statusHtml + `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-skeleton-grid>${cardsHtml}${skeletonCards(6)}</div>`;
+                resolve();
+            });
+        }
+
         async function loadRecommendations(extra) {
+            const reqId = ++currentRequestId;
             const isRefresh = extra && (extra.force_refresh === '1' || extra.force_refresh === 1);
             const statusText = isRefresh
                 ? 'Re-querying fresh recommendations…'
@@ -229,14 +278,39 @@
             history.replaceState(null, '', '/recommendations?' + params.toString());
 
             try {
-                const res = await fetch('/api/recommendations?' + params.toString(), {
+                // Progressive Stage 1: Quick Discovery Batch (~350ms)
+                const fastUrl = '/api/recommendations?' + params.toString() + '&stage=fast';
+                const resFast = await fetch(fastUrl, {
                     headers: { 'X-Requested-With': 'fetch' }
                 });
-                const data = await res.json();
-                await swapInResults(data.html || '');
-                renderCacheStatus(data);
-                renderPagination(data);
+                const dataFast = await resFast.json();
+                if (reqId !== currentRequestId) return; // Stale request
+
+                if (dataFast.is_complete || dataFast.from_cache) {
+                    await swapInResults(dataFast.html || '');
+                    renderCacheStatus(dataFast);
+                    renderPagination(dataFast);
+                    return;
+                }
+
+                // Render instant matches immediately
+                if (dataFast.has_results) {
+                    await renderFastBatch(dataFast);
+                }
+
+                // Progressive Stage 2: Deep Seeds & Complete Pool
+                const fullUrl = '/api/recommendations?' + params.toString() + '&stage=full';
+                const resFull = await fetch(fullUrl, {
+                    headers: { 'X-Requested-With': 'fetch' }
+                });
+                const dataFull = await resFull.json();
+                if (reqId !== currentRequestId) return; // Stale request
+
+                await swapInResults(dataFull.html || '');
+                renderCacheStatus(dataFull);
+                renderPagination(dataFull);
             } catch (e) {
+                if (reqId !== currentRequestId) return;
                 resultsEl.innerHTML = `
                 <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
                     <div class="text-amber-400 font-bold text-lg">Could not load recommendations</div>
@@ -331,6 +405,10 @@
         }
 
         // Wire up filter changes -> re-fetch (no page reload).
+        form.type.addEventListener('change', function () {
+            updateCategoryDropdown();
+        });
+
         form.addEventListener('change', function () {
             syncAvailableStyle();
             syncKidsStyle();

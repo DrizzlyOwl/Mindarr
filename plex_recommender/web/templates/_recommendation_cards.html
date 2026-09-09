@@ -228,11 +228,29 @@
                 <!-- Genre Tags -->
                 <div class="flex flex-wrap gap-1.5">
                     {% for g in item.genres %}
+                    {% if loop.first and item.matched_category %}
+                    <span class="text-[11px] px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/50 font-bold inline-flex items-center space-x-1 shadow-sm" title="Matches category filter: {{ item.matched_category }}">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                        <span>{{ g }}</span>
+                    </span>
+                    {% else %}
                     <span class="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/60 font-medium">
                         {{ g }}
                     </span>
+                    {% endif %}
                     {% endfor %}
                 </div>
+
+                {% if item.theme_badges %}
+                <!-- Matched Themes -->
+                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    {% for t in item.theme_badges %}
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50 font-medium">
+                        #{{ t }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
 
                 <!-- Synopsis -->
                 <p class="text-xs text-slate-400 line-clamp-3 leading-relaxed">

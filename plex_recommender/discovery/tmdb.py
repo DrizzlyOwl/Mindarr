@@ -1,6 +1,8 @@
 import logging
 import requests
-from typing import Optional, Dict, Any, List, Tuple
+from requests.adapters import HTTPAdapter
+import concurrent.futures
+from typing import Optional, Dict, Any, List, Tuple, Set
 from plex_recommender.config import settings
 
 logger = logging.getLogger(__name__)
@@ -10,6 +12,7 @@ TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500"
 
 MOVIE_GENRES = {
     "action": 28,
+    "action & adventure": 28,
     "adventure": 12,
     "animation": 16,
     "anime": 16,
@@ -18,6 +21,7 @@ MOVIE_GENRES = {
     "documentary": 99,
     "drama": 18,
     "family": 10751,
+    "kids": 10751,
     "fantasy": 14,
     "history": 36,
     "horror": 27,
@@ -26,6 +30,7 @@ MOVIE_GENRES = {
     "romance": 10749,
     "sci-fi": 878,
     "science fiction": 878,
+    "sci-fi & fantasy": 878,
     "tv movie": 10770,
     "thriller": 53,
     "suspense": 53,
@@ -48,7 +53,6 @@ TV_GENRES = {
     "mystery": 9648,
     "news": 10763,
     "reality": 10764,
-    "romance": 18,  # TVDb/TMDb TV often categorizes romance under Drama
     "sci-fi": 10765,
     "science fiction": 10765,
     "sci-fi & fantasy": 10765,
@@ -72,9 +76,211 @@ TMDB_ID_TO_GENRE = {
     10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk", 10768: "War & Politics"
 }
 
+GENRE_NAME_ALIASES: Dict[str, Set[str]] = {
+    "sci-fi": {"sci-fi", "science fiction", "sci-fi & fantasy"},
+    "science fiction": {"sci-fi", "science fiction", "sci-fi & fantasy"},
+    "action": {"action", "action & adventure"},
+    "adventure": {"adventure", "action & adventure"},
+    "action & adventure": {"action", "adventure", "action & adventure"},
+    "fantasy": {"fantasy", "sci-fi & fantasy"},
+    "sci-fi & fantasy": {"fantasy", "sci-fi", "science fiction", "sci-fi & fantasy"},
+    "animation": {"animation", "anime"},
+    "anime": {"animation", "anime"},
+    "family": {"family", "kids"},
+    "kids": {"family", "kids"},
+    "thriller": {"thriller", "suspense", "mystery"},
+    "suspense": {"thriller", "suspense"},
+    "war": {"war", "war & politics"},
+    "war & politics": {"war", "war & politics"}
+}
+
+CANONICAL_GENRES: Dict[str, str] = {
+    "science fiction": "Sci-Fi",
+    "sci-fi": "Sci-Fi",
+    "scifi": "Sci-Fi",
+    "sci fi": "Sci-Fi",
+    "sci-fi & fantasy": "Sci-Fi & Fantasy",
+    "action": "Action",
+    "action & adventure": "Action & Adventure",
+    "adventure": "Adventure",
+    "animation": "Animation",
+    "anime": "Animation",
+    "animated": "Animation",
+    "comedy": "Comedy",
+    "stand-up": "Comedy",
+    "crime": "Crime",
+    "documentary": "Documentary",
+    "drama": "Drama",
+    "family": "Family",
+    "kids": "Family",
+    "fantasy": "Fantasy",
+    "history": "History",
+    "historical": "History",
+    "horror": "Horror",
+    "music": "Music",
+    "musical": "Music",
+    "mystery": "Mystery",
+    "romance": "Romance",
+    "romantic": "Romance",
+    "romantic comedy": "Romance",
+    "thriller": "Thriller",
+    "suspense": "Thriller",
+    "war": "War",
+    "war & politics": "War",
+    "western": "Western",
+}
+
+# Verified categories that appear officially in TMDb
+TMDB_MOVIE_CATEGORIES: List[str] = [
+    "Action",
+    "Adventure",
+    "Animation",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Music",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Thriller",
+    "War",
+    "Western",
+]
+
+TMDB_TV_CATEGORIES: List[str] = [
+    "Action & Adventure",
+    "Animation",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Kids",
+    "Mystery",
+    "News",
+    "Reality",
+    "Sci-Fi & Fantasy",
+    "Soap",
+    "Talk",
+    "War & Politics",
+    "Western",
+]
+
+TMDB_ALL_CATEGORIES: List[str] = [
+    "Action",
+    "Adventure",
+    "Action & Adventure",
+    "Animation",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Family",
+    "Fantasy",
+    "History",
+    "Horror",
+    "Kids",
+    "Music",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Sci-Fi & Fantasy",
+    "Thriller",
+    "War",
+    "War & Politics",
+    "Western",
+]
+
+def get_tmdb_categories(media_type: str = "all") -> List[str]:
+    """Return verified official categories that appear in TMDb for the given media format."""
+    if media_type == "movie":
+        return list(TMDB_MOVIE_CATEGORIES)
+    elif media_type in ("show", "tv"):
+        return list(TMDB_TV_CATEGORIES)
+    return list(TMDB_ALL_CATEGORIES)
+
+def to_canonical_genre(genre_name: Optional[str]) -> str:
+    """Normalize a genre name from Plex or TMDb to a standard canonical display name."""
+    if not genre_name:
+        return ""
+    clean = genre_name.lower().strip()
+    if clean in CANONICAL_GENRES:
+        return CANONICAL_GENRES[clean]
+    return genre_name.strip().title()
+
+def genres_align(genre_a: Optional[str], genre_b: Optional[str]) -> bool:
+    """Check if two genre labels belong to the same semantic cluster or are aliases."""
+    if not genre_a or not genre_b:
+        return False
+    clean_a = genre_a.lower().strip()
+    clean_b = genre_b.lower().strip()
+    if clean_a == clean_b:
+        return True
+
+    canon_a = to_canonical_genre(clean_a).lower()
+    canon_b = to_canonical_genre(clean_b).lower()
+    if canon_a == canon_b:
+        return True
+
+    aliases_a = GENRE_NAME_ALIASES.get(clean_a, {clean_a})
+    if clean_b in aliases_a or canon_b in aliases_a:
+        return True
+
+    aliases_b = GENRE_NAME_ALIASES.get(clean_b, {clean_b})
+    if clean_a in aliases_b or canon_a in aliases_b:
+        return True
+
+    return False
+
+def get_all_genre_ids_for_name(genre_name: str) -> Set[int]:
+    """Retrieve all possible TMDb genre IDs across movie and TV for a genre name."""
+    clean = genre_name.lower().strip()
+    names_to_check = {clean}
+    if clean in GENRE_NAME_ALIASES:
+        names_to_check.update(GENRE_NAME_ALIASES[clean])
+    canon = to_canonical_genre(clean).lower()
+    if canon in GENRE_NAME_ALIASES:
+        names_to_check.update(GENRE_NAME_ALIASES[canon])
+    names_to_check.add(canon)
+
+    ids = set()
+    for n in names_to_check:
+        if n in MOVIE_GENRES:
+            ids.add(MOVIE_GENRES[n])
+        if n in TV_GENRES:
+            ids.add(TV_GENRES[n])
+    return ids
+
+def candidate_matches_genre(cand: Dict[str, Any], target_genre: Optional[str]) -> bool:
+    """Return True if candidate item matches target genre by ID, canonical name, or alias."""
+    if not target_genre:
+        return True
+
+    clean_target = target_genre.lower().strip()
+    target_ids = get_all_genre_ids_for_name(clean_target)
+
+    cand_ids = set(cand.get("genre_ids", []))
+    if cand_ids & target_ids:
+        return True
+
+    for g in cand.get("genres", []):
+        if genres_align(g, clean_target):
+            return True
+
+    return False
+
 class TMDbClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.tmdb_api_key
+        self.session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=2)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def _get_headers_params(self, params: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, Any]]:
         key = self.api_key or settings.tmdb_api_key
@@ -93,7 +299,8 @@ class TMDbClient:
         params = params or {}
         headers, qparams = self._get_headers_params(params)
         url = f"{TMDB_BASE_URL}{endpoint}"
-        resp = requests.get(url, headers=headers, params=qparams, timeout=10)
+        sess = getattr(self, "session", requests)
+        resp = sess.get(url, headers=headers, params=qparams, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
@@ -213,6 +420,32 @@ class TMDbClient:
             logger.debug(f"Could not fetch external IDs for {media_type} {item_id}: {e}")
             return {"imdb_id": None, "tvdb_id": None}
 
+    def batch_get_external_ids(
+        self,
+        items: List[Tuple[int, str]],
+        max_workers: int = 8
+    ) -> Dict[str, Dict[str, Optional[str]]]:
+        """Concurrently fetch external IDs for a list of (tmdb_id, media_type) tuples."""
+        results: Dict[str, Dict[str, Optional[str]]] = {}
+        if not items:
+            return results
+
+        def _fetch(it: Tuple[int, str]):
+            tid, mtype = it
+            return str(tid), self.get_external_ids(tid, media_type=mtype)
+
+        workers = min(max_workers, len(items))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_fetch, it) for it in items]
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    tid_str, ids = fut.result()
+                    results[tid_str] = ids
+                except Exception as e:
+                    logger.debug(f"Error in batch external ID fetch: {e}")
+
+        return results
+
     def search_person(self, name: str) -> Optional[int]:
         """Search person by name (e.g. director) to retrieve TMDb person ID."""
         try:
@@ -235,7 +468,14 @@ class TMDbClient:
         poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else None
         
         genre_ids = raw.get("genre_ids", [])
-        genre_names = [TMDB_ID_TO_GENRE.get(gid, "Other") for gid in genre_ids if gid in TMDB_ID_TO_GENRE]
+        genre_names = []
+        seen_g = set()
+        for gid in genre_ids:
+            if gid in TMDB_ID_TO_GENRE:
+                canon = to_canonical_genre(TMDB_ID_TO_GENRE[gid])
+                if canon not in seen_g:
+                    seen_g.add(canon)
+                    genre_names.append(canon)
         
         orig_lang = raw.get("original_language", "en")
         language_map = {
