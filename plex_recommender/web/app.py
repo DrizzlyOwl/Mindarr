@@ -157,7 +157,7 @@ async def lifespan(app: FastAPI):
     if scheduler.running:
         scheduler.shutdown()
 
-app = FastAPI(title="Mindarr", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Mindarr", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     SessionMiddleware,
@@ -240,6 +240,8 @@ def community_page(request: Request):
 
 @app.get("/sources", response_class=HTMLResponse)
 @app.get("/sources/", response_class=HTMLResponse)
+@app.get("/history", response_class=HTMLResponse)
+@app.get("/history/", response_class=HTMLResponse)
 def sources_page(request: Request):
     user = get_current_user(request)
     if not user:

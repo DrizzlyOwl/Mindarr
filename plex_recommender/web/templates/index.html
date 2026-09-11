@@ -9,7 +9,7 @@
     <div class="flex items-center space-x-1 border-b border-slate-800">
         <a href="/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Viewing Trends</a>
         <a href="/community/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path.startswith('/community') %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Community</a>
-        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path.startswith('/sources') %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Sources</a>
+        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path.startswith('/sources') %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Watch History</a>
     </div>
 
     {% if request.query_params.get('recs_not_ready') %}
@@ -134,54 +134,6 @@
                 {% endfor %}
             </div>
         </div>
-        {% endif %}
-
-        {% set src = profile.summary.sources %}
-        {% if src and src.total_events %}
-        <details class="mt-5 group border-t border-slate-800 pt-4">
-            <summary class="flex items-center justify-between cursor-pointer list-none text-xs font-semibold text-slate-400 hover:text-slate-200 transition">
-                <span class="inline-flex items-center space-x-1.5">
-                    <svg class="w-3.5 h-3.5 fill-current transition-transform group-open:rotate-90" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L10.586 10 7.293 6.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                    <span>Data sources</span>
-                </span>
-                <span class="text-slate-500">{{ src.total_events }} watch events</span>
-            </summary>
-
-            <div class="mt-3 space-y-3">
-                <!-- Stacked bar -->
-                <div class="flex h-2.5 w-full rounded-full overflow-hidden bg-slate-800">
-                    {% if src.plex_pct %}<div class="bg-amber-500" style="width: {{ src.plex_pct }}%" title="Plex: {{ src.plex_pct }}%"></div>{% endif %}
-                    {% if src.tautulli_pct %}<div class="bg-orange-400" style="width: {{ src.tautulli_pct }}%" title="Tautulli: {{ src.tautulli_pct }}%"></div>{% endif %}
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="bg-slate-950/50 border border-slate-800 rounded-lg px-3 py-2">
-                        <div class="flex items-center space-x-1.5">
-                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-                            <span class="text-xs font-semibold text-slate-300">Plex watch history</span>
-                        </div>
-                        <div class="mt-1 text-sm font-bold text-white">{{ src.plex_events }} <span class="text-xs font-normal text-slate-400">events ({{ src.plex_pct }}%)</span></div>
-                    </div>
-                    <div class="bg-slate-950/50 border border-slate-800 rounded-lg px-3 py-2">
-                        <div class="flex items-center space-x-1.5">
-                            <span class="w-2 h-2 rounded-full bg-orange-400"></span>
-                            <span class="text-xs font-semibold text-slate-300">Tautulli enrichment</span>
-                        </div>
-                        <div class="mt-1 text-sm font-bold text-white">{{ src.tautulli_events }} <span class="text-xs font-normal text-slate-400">events ({{ src.tautulli_pct }}%)</span></div>
-                    </div>
-                </div>
-
-                <p class="text-[11px] text-slate-500">
-                    {% if src.tautulli_events and not src.plex_events %}
-                    All watch history for this profile is sourced from Tautulli. Plex server history returned no events for your account.
-                    {% elif src.plex_events and not src.tautulli_events %}
-                    All watch history is sourced directly from Plex. Tautulli enrichment is unused (not configured or no matching history).
-                    {% else %}
-                    Watch history is combined from Plex server history (primary) and Tautulli (optional enrichment).
-                    {% endif %}
-                </p>
-            </div>
-        </details>
         {% endif %}
     </div>
     {% endif %}

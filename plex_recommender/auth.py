@@ -5,6 +5,7 @@ import urllib3
 import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, Tuple, List
 from plexapi.server import PlexServer
+from plex_recommender import __version__
 from plex_recommender.config import settings
 
 # Suppress insecure HTTPS warning for internal LAN plex IP connections
@@ -25,7 +26,7 @@ def create_plex_pin() -> Dict[str, Any]:
         "Accept": "application/json",
         "X-Plex-Product": APP_PRODUCT,
         "X-Plex-Client-Identifier": PLEX_CLIENT_ID,
-        "X-Plex-Version": "1.0.0"
+        "X-Plex-Version": __version__
     }
     resp = requests.post(url, headers=headers, timeout=10)
     resp.raise_for_status()

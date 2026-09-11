@@ -179,7 +179,7 @@ def test_homepage_shows_taste_profile_card():
         assert "analyzed titles" in resp.text
 
 
-def test_taste_profile_shows_data_source_breakdown():
+def test_taste_profile_does_not_show_data_sources_accordion():
     from plex_recommender.db import upsert_user_media, record_watch_event
     with TestClient(app) as client:
         _login(client)
@@ -192,9 +192,8 @@ def test_taste_profile_shows_data_source_breakdown():
         record_watch_event({"user_key": USER, "item_id": "s1", "viewed_at": "2026-01-02T00:00:00", "source": "plex"})
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "Data sources" in resp.text
-        assert "Plex watch history" in resp.text
-        assert "Tautulli enrichment" in resp.text
+        assert "Data sources" not in resp.text
+        assert "Viewing Trends & Taste Profile" in resp.text
 
 
 def test_env_managed_setting_is_locked_and_not_overwritten(monkeypatch):
@@ -369,20 +368,30 @@ def test_sources_unauthenticated_redirects_to_login():
         assert resp_noslash.status_code == 303
         assert resp_noslash.headers["location"] == "/login"
 
+        resp_hist = client.get("/history/", follow_redirects=False)
+        assert resp_hist.status_code == 303
+        assert resp_hist.headers["location"] == "/login"
 
-def test_sources_page_renders_with_provenance_key():
+
+def test_watch_history_page_renders():
     with TestClient(app) as client:
         _login(client)
         resp = client.get("/sources/")
         assert resp.status_code == 200
-        assert "Watch History Sources" in resp.text
-        assert "Data Provenance Key" in resp.text
-        assert "Plex API" in resp.text
-        assert "Tautulli" in resp.text
+        assert "Watch History" in resp.text
+        assert "Recent Plays Shown" in resp.text
+        assert "Total Recorded Plays" in resp.text
+        assert "Recent Watch Time" in resp.text
+        assert "Data Provenance Key" not in resp.text
         assert "No Watch History Found" in resp.text
 
+        # Also verify /history alias works identically
+        resp_hist = client.get("/history/")
+        assert resp_hist.status_code == 200
+        assert "Watch History" in resp_hist.text
 
-def test_sources_page_renders_events_with_coloured_keys_and_sorting():
+
+def test_watch_history_page_renders_events_and_sorting():
     with TestClient(app) as client:
         _login(client)
 
@@ -436,11 +445,9 @@ def test_sources_page_renders_events_with_coloured_keys_and_sorting():
         assert idx_newer != -1 and idx_older != -1
         assert idx_newer < idx_older, "Expected most recent event to appear first in the HTML"
 
-        # Coloured keys / indicators present
-        assert "bg-amber-500/10 text-amber-400" in text  # Plex API amber key
-        assert "bg-cyan-500/10 text-cyan-400" in text    # Tautulli cyan key
-        assert "Archive" in text
-        assert "Live" in text
+        # Separate archive/live provenance badges are not displayed
+        assert "Enriched archive record" not in text
+        assert "Direct server playback log" not in text
 
         # Verify data binding and details action trigger
         assert "window.WATCH_EVENTS_DATA = [" in text
@@ -482,7 +489,7 @@ def test_nav_submenu_contains_sources():
         resp = client.get("/")
         assert resp.status_code == 200
         assert 'href="/sources/"' in resp.text
-        assert "Sources" in resp.text
+        assert "Watch History" in resp.text
         assert 'href="/community/"' in resp.text
         assert "Community" in resp.text
 

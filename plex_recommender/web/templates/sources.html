@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 
-{% block title %}Watch History Sources{% endblock %}
+{% block title %}Watch History{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -9,14 +9,14 @@
     <div class="flex items-center space-x-1 border-b border-slate-800">
         <a href="/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-transparent text-slate-400 hover:text-white">Viewing Trends</a>
         <a href="/community/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-transparent text-slate-400 hover:text-white">Community</a>
-        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-amber-500 text-amber-400">Sources</a>
+        <a href="/sources/" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 border-amber-500 text-amber-400">Watch History</a>
     </div>
 
     <!-- Header & Info -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 to-slate-800/80 p-6 rounded-2xl border border-slate-800 shadow-xl">
         <div>
-            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Watch History Sources</h1>
-            <p class="text-sm text-slate-400 mt-1">Detailed log of recent playback events and their provenance across Plex API and Tautulli.</p>
+            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Watch History</h1>
+            <p class="text-sm text-slate-400 mt-1">Detailed log of your recent playback events synced from your Plex server.</p>
         </div>
         <div class="flex items-center space-x-3 text-xs text-slate-400">
             <span class="inline-flex items-center px-3 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 font-medium">
@@ -26,59 +26,24 @@
     </div>
 
     <!-- Metrics Cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
             <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Recent Plays Shown</div>
             <div class="mt-2 text-3xl font-extrabold text-white" id="stat-shown-count">{{ events|length }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Most recent playback records</div>
         </div>
         <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
             <div class="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
                 <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                <span>Plex API Plays</span>
+                <span>Total Recorded Plays</span>
             </div>
-            <div class="mt-2 text-3xl font-extrabold text-amber-400">{{ source_stats.plex }}</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Total across all history</div>
-        </div>
-        <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
-            <div class="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center space-x-1.5">
-                <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-                <span>Tautulli Plays</span>
-            </div>
-            <div class="mt-2 text-3xl font-extrabold text-cyan-400">{{ source_stats.tautulli }}</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Enriched history</div>
+            <div class="mt-2 text-3xl font-extrabold text-amber-400">{{ source_stats.total }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Total across your watch history</div>
         </div>
         <div class="bg-slate-900/90 border border-slate-800 p-5 rounded-xl">
             <div class="text-xs font-semibold uppercase tracking-wider text-slate-400">Recent Watch Time</div>
             <div class="mt-2 text-3xl font-extrabold text-slate-200">{% if total_hours > 0 %}{{ total_hours }} <span class="text-lg font-normal text-slate-400">hrs</span>{% else %}&mdash;{% endif %}</div>
             <div class="text-[11px] text-slate-500 mt-0.5">Across latest 100 plays</div>
-        </div>
-    </div>
-
-    <!-- Coloured Key / Provenance Legend -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg">
-        <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Data Provenance Key</div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-            <div class="flex items-start space-x-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
-                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 shrink-0">
-                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                    <span>Plex API</span>
-                </span>
-                <div>
-                    <div class="font-medium text-amber-300">Direct Server History (Live)</div>
-                    <p class="text-slate-400 mt-0.5">Logged directly from the Plex Media Server play history API using server-local user tokens.</p>
-                </div>
-            </div>
-
-            <div class="flex items-start space-x-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
-                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">
-                    <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
-                    <span>Tautulli</span>
-                </span>
-                <div>
-                    <div class="font-medium text-cyan-300">Enriched Historical Archive</div>
-                    <p class="text-slate-400 mt-0.5">Recovered from Tautulli's long-term database archive, backfilling watches beyond Plex's standard history buffer.</p>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -157,7 +122,6 @@
             <table class="w-full text-sm text-left">
                 <thead>
                     <tr class="text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-800 bg-slate-950/40">
-                        <th class="px-5 py-3.5 font-semibold">Source</th>
                         <th class="px-5 py-3.5 font-semibold">Title &amp; Info</th>
                         <th class="px-4 py-3.5 font-semibold">Type</th>
                         <th class="px-4 py-3.5 font-semibold">Viewed At</th>
@@ -174,27 +138,6 @@
                         data-year="{{ ev.year or '' }}"
                         data-genres="{{ (ev.genres or [])|join(' ')|lower }}"
                         onclick="openDetailDrawer({{ loop.index0 }})">
-                        
-                        <!-- Source Column (Coloured Key) -->
-                        <td class="px-5 py-3.5 whitespace-nowrap">
-                            {% if ev.source == 'tautulli' %}
-                            <div class="flex items-center space-x-1.5">
-                                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                                    <span>Tautulli</span>
-                                </span>
-                                <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60" title="Enriched archive record">Archive</span>
-                            </div>
-                            {% else %}
-                            <div class="flex items-center space-x-1.5">
-                                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                    <span>Plex API</span>
-                                </span>
-                                <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20" title="Direct server playback log">Live</span>
-                            </div>
-                            {% endif %}
-                        </td>
 
                         <!-- Title & Year & Genres -->
                         <td class="px-5 py-3.5">
@@ -274,32 +217,13 @@
                 data-genres="{{ (ev.genres or [])|join(' ')|lower }}"
                 onclick="openDetailDrawer({{ loop.index0 }})">
                 
-                <!-- Dot on Timeline Line (Color-coded) -->
-                {% if ev.source == 'tautulli' %}
-                <span class="absolute -left-[31px] top-4 w-3.5 h-3.5 rounded-full bg-cyan-400 border-4 border-[#0b0f19] shadow-md shadow-cyan-500/40"></span>
-                {% else %}
+                <!-- Dot on Timeline Line -->
                 <span class="absolute -left-[31px] top-4 w-3.5 h-3.5 rounded-full bg-amber-400 border-4 border-[#0b0f19] shadow-md shadow-amber-500/40"></span>
-                {% endif %}
 
                 <!-- Timeline Event Card -->
                 <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div class="space-y-1.5 flex-1">
                         <div class="flex flex-wrap items-center gap-2">
-                            <!-- Source Badge -->
-                            {% if ev.source == 'tautulli' %}
-                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                                <span>Tautulli</span>
-                            </span>
-                            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/60">Archive</span>
-                            {% else %}
-                            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                                <span>Plex API</span>
-                            </span>
-                            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Live</span>
-                            {% endif %}
-
                             <!-- Media Type Pill -->
                             {% if ev.media_type == 'movie' %}
                             <span class="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Movie</span>
@@ -347,7 +271,7 @@
     <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
         <div>
             <h3 class="text-sm font-bold text-white" id="drawer-header-title">Playback Details</h3>
-            <p class="text-xs text-slate-400" id="drawer-header-subtitle">Source &amp; Media Diagnostics</p>
+            <p class="text-xs text-slate-400" id="drawer-header-subtitle">Media Details &amp; Diagnostics</p>
         </div>
         <button type="button" onclick="closeDetailDrawer()" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -542,23 +466,12 @@
 
         // Source badge
         const badgeBox = document.getElementById('drawer-source-badges');
-        if (item.source === 'tautulli') {
-            badgeBox.innerHTML = `
-                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-                    <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-                    <span>Tautulli</span>
-                </span>
-                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Archived Play</span>
-            `;
-        } else {
-            badgeBox.innerHTML = `
-                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                    <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                    <span>Plex API</span>
-                </span>
-                <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Direct History</span>
-            `;
-        }
+        badgeBox.innerHTML = `
+            <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                <span>Plex Watch History</span>
+            </span>
+        `;
 
         // Meta line
         const metaLine = document.getElementById('drawer-meta-line');
@@ -627,7 +540,7 @@
         }
 
         // Diagnostics
-        document.getElementById('drawer-diag-source').textContent = item.source === 'tautulli' ? 'Tautulli (archive)' : 'Plex API (direct)';
+        document.getElementById('drawer-diag-source').textContent = 'Plex';
         document.getElementById('drawer-diag-viewed').textContent = item.viewed_at_clean || item.viewed_at || '—';
         document.getElementById('drawer-diag-duration').textContent = item.duration_formatted ? `${item.duration_formatted} (${item.raw_duration})` : '—';
         document.getElementById('drawer-diag-itemid').textContent = item.item_id || '—';
