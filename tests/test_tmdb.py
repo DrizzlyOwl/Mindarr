@@ -158,3 +158,17 @@ def test_romance_does_not_match_crime_drama():
     assert candidate_matches_genre(crime_drama_show, "Crime") is True
     assert candidate_matches_genre(crime_drama_show, "Drama") is True
     assert candidate_matches_genre(crime_drama_show, "Romance") is False
+
+
+def test_tmdb_get_web_url():
+    from plex_recommender.discovery.tmdb import TMDbClient
+    client = TMDbClient()
+
+    # Shows must link to /tv/
+    assert client.get_web_url(246, media_type="show") == "https://www.themoviedb.org/tv/246"
+    assert client.get_web_url("246", media_type="tv") == "https://www.themoviedb.org/tv/246"
+    assert client.get_web_url(246, media_type="episode") == "https://www.themoviedb.org/tv/246"
+
+    # Movies must link to /movie/
+    assert client.get_web_url(27205, media_type="movie") == "https://www.themoviedb.org/movie/27205"
+

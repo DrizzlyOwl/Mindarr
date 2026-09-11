@@ -502,3 +502,9 @@ class TMDbClient:
             "original_language": orig_lang,
             "language_name": lang_name
         }
+
+    def get_web_url(self, item_id: Any, media_type: str = "movie") -> str:
+        """Get direct browser link to the title on TMDb web interface."""
+        mtype = "tv" if str(media_type).lower() in ("show", "tv", "episode") else "movie"
+        return f"https://www.themoviedb.org/{mtype}/{item_id}"
+

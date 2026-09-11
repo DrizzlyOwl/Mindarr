@@ -87,3 +87,50 @@ def test_get_history_without_user_id():
         rows = client.get_history()
     assert len(rows) == 1
     assert rows[0]["title"] == "Server Wide Show"
+
+
+def test_community_merges_popular_stats_and_resolves_viewer_count():
+    from plex_recommender.community import CommunityService
+
+    service = CommunityService()
+    # Mock Tautulli home stats where top_tv has empty string users_watched,
+    # but popular_tv has users_watched: 4
+    home_stats = [
+        {
+            "stat_id": "top_tv",
+            "rows": [
+                {"title": "The Rookie", "year": 2018, "rating_key": 1001, "total_plays": 20, "users_watched": ""}
+            ]
+        },
+        {
+            "stat_id": "popular_tv",
+            "rows": [
+                {"title": "The Rookie", "year": 2018, "rating_key": 1001, "total_plays": 20, "users_watched": 4}
+            ]
+        }
+    ]
+
+    with patch("plex_recommender.discovery.tautulli.tautulli.is_configured", return_value=True), \
+         patch("plex_recommender.discovery.tautulli.tautulli.get_users", return_value=[{"user_id": "1"}, {"user_id": "2"}]), \
+         patch("plex_recommender.community.get_all_users", return_value=[]), \
+         patch("plex_recommender.discovery.tautulli.tautulli.get_home_stats", return_value=home_stats), \
+         patch("plex_recommender.discovery.tautulli.tautulli.get_history", return_value=[]):
+
+        current_user = {"user_key": "user_test", "username": "testuser"}
+        data = service._build_from_tautulli(
+            current_user=current_user,
+            seen_index={"imdb": set(), "tmdb": set(), "tvdb": set(), "title_year": set()},
+            user_item_ids=set(),
+            local_user_stats={},
+            media_meta={},
+            local_user_counts={}
+        )
+
+        unseen = data["unseen_recommendations"]
+        assert len(unseen) == 1
+        rookie = unseen[0]
+        assert rookie["title"] == "The Rookie"
+        # Must reflect 4 viewers (from popular_tv), NOT 1 viewer (from top_tv)
+        assert rookie["users_watched"] == 4
+        assert rookie["total_plays"] == 20
+

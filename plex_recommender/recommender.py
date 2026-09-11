@@ -455,7 +455,21 @@ class ContentRecommender:
             cand["imdb_id"] = imdb_id
             cand["tvdb_id"] = tvdb_id
             cand["imdb_url"] = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else None
-            cand["tmdb_url"] = f"https://www.themoviedb.org/{cand['media_type']}/{tmdb_str}"
+
+            # Generate TMDb web URL safely (handling mocks in tests)
+            tmdb_url = None
+            if hasattr(self.tmdb, "get_web_url"):
+                try:
+                    res_url = self.tmdb.get_web_url(tmdb_str, media_type=cand["media_type"])
+                    if isinstance(res_url, str):
+                        tmdb_url = res_url
+                except Exception:
+                    pass
+            if not tmdb_url:
+                mtype = "tv" if str(cand["media_type"]).lower() in ("show", "tv", "episode") else "movie"
+                tmdb_url = f"https://www.themoviedb.org/{mtype}/{tmdb_str}"
+            cand["tmdb_url"] = tmdb_url
+
             cand["overseerr_url"] = overseerr.get_web_url(int(tmdb_str), media_type=cand["media_type"])
 
             # Check Overseerr server-wide queue status (prevents duplicate requests)

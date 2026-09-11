@@ -62,11 +62,47 @@ class CommunityService:
             if d["item_id"].startswith("movie_") or d["item_id"].startswith("show_"):
                 raw_id = d["item_id"].split("_", 1)[1]
                 media_meta[raw_id] = d
+
+        # Local user counts per item from user_media to cross-reference / fallback
+        local_user_counts: Dict[str, Dict[str, int]] = {}
+        try:
+            counts_rows = conn.execute("""
+                SELECT item_id, COUNT(DISTINCT user_key) as user_count, SUM(view_count) as total_plays
+                FROM user_media
+                GROUP BY item_id
+            """).fetchall()
+            for cr in counts_rows:
+                iid = str(cr["item_id"])
+                cnt_info = {
+                    "user_count": int(cr["user_count"] or 1),
+                    "total_plays": int(cr["total_plays"] or 1),
+                }
+                local_user_counts[iid] = cnt_info
+                if iid.startswith("movie_") or iid.startswith("show_"):
+                    raw_id = iid.split("_", 1)[1]
+                    local_user_counts[raw_id] = cnt_info
+
+            title_counts_rows = conn.execute("""
+                SELECT m.title, m.year, COUNT(DISTINCT um.user_key) as user_count, SUM(um.view_count) as total_plays
+                FROM user_media um
+                JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('movie_' || um.item_id) OR m.item_id = ('show_' || um.item_id)
+                GROUP BY m.title, m.year
+            """).fetchall()
+            for tr in title_counts_rows:
+                if tr["title"]:
+                    norm_k = f"{normalize_title(tr['title'])}::{tr['year'] or ''}"
+                    local_user_counts[norm_k] = {
+                        "user_count": int(tr["user_count"] or 1),
+                        "total_plays": int(tr["total_plays"] or 1),
+                    }
+        except Exception as e:
+            logger.debug(f"Could not compute local community user counts: {e}")
+
         conn.close()
 
         # Check if Tautulli is configured and can provide server-wide history
         if tautulli.is_configured():
-            data = self._build_from_tautulli(current_user, seen_index, user_item_ids, local_user_stats, media_meta)
+            data = self._build_from_tautulli(current_user, seen_index, user_item_ids, local_user_stats, media_meta, local_user_counts)
         else:
             data = self._build_from_db(current_user, seen_index, user_item_ids, local_user_stats, media_meta)
 
@@ -81,37 +117,40 @@ class CommunityService:
         user_item_ids: Set[str],
         local_user_stats: Dict[str, Any],
         media_meta: Dict[str, Dict[str, Any]],
+        local_user_counts: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> Dict[str, Any]:
         """Aggregate community data using Tautulli's server-wide statistics and history."""
+        local_user_counts = local_user_counts or {}
         tautulli_users = tautulli.get_users()
         total_community_members = max(len(tautulli_users), len(get_all_users()))
 
         home_stats = tautulli.get_home_stats(time_range=30)
         recent_history = tautulli.get_history(length=30)
 
-        # 1. Parse Popular Movies & TV
-        popular_movies = []
-        popular_tv = []
+        # 1. Parse Popular Movies & TV (prioritize popular_* over top_* to capture true distinct viewer counts)
+        stat_groups = {g.get("stat_id"): g.get("rows", []) or [] for g in home_stats}
+        movie_rows = stat_groups.get("popular_movies", []) + stat_groups.get("top_movies", [])
+        tv_rows = stat_groups.get("popular_tv", []) + stat_groups.get("top_tv", [])
 
-        for group in home_stats:
-            stat_id = group.get("stat_id")
-            rows = group.get("rows", []) or []
+        def _merge_popular_items(rows, mtype):
+            merged: Dict[Tuple[str, Optional[int]], Dict[str, Any]] = {}
+            for r in rows:
+                item = self._format_media_item(r, mtype, seen_index, user_item_ids, media_meta, local_user_counts)
+                if not item:
+                    continue
+                key = (normalize_title(item["title"]), item.get("year"))
+                if key not in merged:
+                    merged[key] = item
+                else:
+                    existing = merged[key]
+                    existing["users_watched"] = max(existing.get("users_watched", 1), item.get("users_watched", 1))
+                    existing["total_plays"] = max(existing.get("total_plays", 1), item.get("total_plays", 1))
+            items_list = list(merged.values())
+            items_list.sort(key=lambda x: (x.get("users_watched", 1), x.get("total_plays", 1)), reverse=True)
+            return items_list[:10]
 
-            if stat_id in ("popular_movies", "top_movies"):
-                for r in rows:
-                    item = self._format_media_item(r, "movie", seen_index, user_item_ids, media_meta)
-                    if item and not any(m["title"] == item["title"] and m["year"] == item["year"] for m in popular_movies):
-                        popular_movies.append(item)
-
-            elif stat_id in ("popular_tv", "top_tv"):
-                for r in rows:
-                    item = self._format_media_item(r, "show", seen_index, user_item_ids, media_meta)
-                    if item and not any(s["title"] == item["title"] for s in popular_tv):
-                        popular_tv.append(item)
-
-        # Slice to top 10 each
-        popular_movies = popular_movies[:10]
-        popular_tv = popular_tv[:10]
+        popular_movies = _merge_popular_items(movie_rows, "movie")
+        popular_tv = _merge_popular_items(tv_rows, "show")
 
         # 2. Unseen Peer Recommendations (Watched by others on server, not seen by you)
         all_popular = popular_movies + popular_tv
@@ -365,25 +404,42 @@ class CommunityService:
         seen_index: Dict[str, Set[str]],
         user_item_ids: Set[str],
         media_meta: Dict[str, Dict[str, Any]],
+        local_user_counts: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> Optional[Dict[str, Any]]:
         title = r.get("title")
         if not title:
             return None
         year = r.get("year")
         rk = str(r.get("rating_key") or r.get("grandparent_rating_key") or "")
-        users_watched = r.get("users_watched") or 1
-        try:
-            users_watched = int(users_watched)
-        except (ValueError, TypeError):
-            users_watched = 1
-        total_plays = r.get("total_plays") or 1
-        try:
-            total_plays = int(total_plays)
-        except (ValueError, TypeError):
-            total_plays = 1
-
         norm_t = normalize_title(title)
         seen_key = f"{norm_t}::{year or ''}"
+
+        local_user_counts = local_user_counts or {}
+        local_info = (
+            local_user_counts.get(rk)
+            or local_user_counts.get(f"{media_type}_{rk}")
+            or local_user_counts.get(seen_key)
+            or {}
+        )
+        local_user_cnt = local_info.get("user_count", 1)
+        local_total_plays = local_info.get("total_plays", 1)
+
+        raw_users = r.get("users_watched")
+        users_watched = None
+        if raw_users is not None and str(raw_users).strip().isdigit():
+            users_watched = int(str(raw_users).strip())
+
+        # If Tautulli didn't supply viewer count or gave 1, fallback to local DB user count
+        if users_watched is None or users_watched <= 1:
+            users_watched = max(users_watched or 1, local_user_cnt)
+
+        raw_plays = r.get("total_plays")
+        total_plays = None
+        if raw_plays is not None and str(raw_plays).strip().isdigit():
+            total_plays = int(str(raw_plays).strip())
+        if total_plays is None or total_plays <= 1:
+            total_plays = max(total_plays or 1, local_total_plays)
+
         seen = (
             (seen_key in seen_index["title_year"])
             or (rk in user_item_ids)
