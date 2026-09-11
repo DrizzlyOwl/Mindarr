@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from plex_recommender import __version__
 from plex_recommender.config import settings
+from plex_recommender.logs import log_handler, LogHandler
 from plex_recommender.db import (
     init_db, get_stats, set_setting, get_setting, clear_recommendations_cache,
     admin_exists, get_admin, get_user, get_all_users, create_or_update_user,
@@ -20,7 +21,6 @@ from plex_recommender.db import (
     get_enriched_watch_events, get_watch_source_breakdown,
     dismiss_item, undismiss_item, get_user_dismissals,
     get_system_logs, truncate_system_logs, clear_all_system_logs,
-    SQLiteLogHandler,
 )
 from plex_recommender.auth import (
     create_plex_pin, check_plex_pin, verify_plex_connection,
@@ -121,13 +121,10 @@ def get_scheduled_jobs_info():
 async def lifespan(app: FastAPI):
     init_db()
 
-    # Attach SQLiteLogHandler to persist logs with 7-day retention
-    sql_handler = SQLiteLogHandler()
-    sql_handler.setLevel(logging.INFO)
-    sql_handler.setFormatter(logging.Formatter("%(message)s"))
+    # Attach LogHandler to persist logs with 7-day retention
     pkg_logger = logging.getLogger("plex_recommender")
-    if not any(isinstance(h, SQLiteLogHandler) for h in pkg_logger.handlers):
-        pkg_logger.addHandler(sql_handler)
+    if not any(isinstance(h, LogHandler) for h in pkg_logger.handlers):
+        pkg_logger.addHandler(log_handler)
 
     if not scheduler.running:
         scheduler.add_job(
@@ -419,9 +416,11 @@ def api_recommendations(
 
 @app.post("/api/recommendations/clear-cache")
 def api_clear_recommendations_cache(request: Request):
-    if not get_current_user(request):
+    user = get_current_user(request)
+    if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     clear_recommendations_cache()
+    logger.info("User '%s' cleared recommendations cache.", user.get("username") or user.get("user_key"))
     return {"success": True, "message": "Recommendations cache cleared"}
 
 
@@ -445,6 +444,15 @@ def api_dismiss_recommendation(
         year=year,
         reason=reason
     )
+    reason_label = "watched outside Plex" if reason == "already_watched" else "not interested"
+    logger.info(
+        "User '%s' dismissed recommendation '%s' (%s, TMDb: %s) as %s.",
+        user.get("username") or user.get("user_key"),
+        title or tmdb_id,
+        media_type,
+        tmdb_id,
+        reason_label
+    )
     return JSONResponse({"success": True, "tmdb_id": tmdb_id, "reason": reason})
 
 
@@ -457,6 +465,11 @@ def api_undismiss_recommendation(
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     undismiss_item(user_key=user["user_key"], tmdb_id=tmdb_id)
+    logger.info(
+        "User '%s' restored recommendation TMDb: %s to active pools.",
+        user.get("username") or user.get("user_key"),
+        tmdb_id
+    )
     return JSONResponse({"success": True, "tmdb_id": tmdb_id})
 
 
@@ -539,25 +552,35 @@ def save_settings(
         return RedirectResponse(url="/login?next=/settings", status_code=303)
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Administrator access required.")
-    if plex_url:
+
+    changed = []
+    if plex_url and plex_url.strip() != settings.plex_url:
         settings.save_setting("PLEX_URL", plex_url.strip())
-    if plex_token is not None:
+        changed.append("PLEX_URL")
+    if plex_token is not None and plex_token.strip() and plex_token.strip() != (settings.plex_token or ""):
         settings.save_setting("PLEX_TOKEN", plex_token.strip())
-    if tmdb_api_key is not None:
+        changed.append("PLEX_TOKEN")
+    if tmdb_api_key is not None and tmdb_api_key.strip() != (settings.tmdb_api_key or ""):
         settings.save_setting("TMDB_API_KEY", tmdb_api_key.strip())
-    if overseerr_url is not None:
+        changed.append("TMDB_API_KEY")
+    if overseerr_url is not None and overseerr_url.strip() != settings.overseerr_url:
         settings.save_setting("OVERSEERR_URL", overseerr_url.strip())
-    if overseerr_api_key is not None:
+        changed.append("OVERSEERR_URL")
+    if overseerr_api_key is not None and overseerr_api_key.strip() != (settings.overseerr_api_key or ""):
         settings.save_setting("OVERSEERR_API_KEY", overseerr_api_key.strip())
-    if tautulli_url is not None:
+        changed.append("OVERSEERR_API_KEY")
+    if tautulli_url is not None and tautulli_url.strip() != settings.tautulli_url:
         settings.save_setting("TAUTULLI_URL", tautulli_url.strip())
-    if tautulli_api_key is not None:
+        changed.append("TAUTULLI_URL")
+    if tautulli_api_key is not None and tautulli_api_key.strip() != (settings.tautulli_api_key or ""):
         settings.save_setting("TAUTULLI_API_KEY", tautulli_api_key.strip())
+        changed.append("TAUTULLI_API_KEY")
     if auto_sync_hours is not None and auto_sync_hours.strip().isdigit():
         val = int(auto_sync_hours.strip())
-        if val > 0:
+        if val > 0 and val != settings.auto_sync_hours:
             settings.save_setting("AUTO_SYNC_HOURS", str(val))
             settings.auto_sync_hours = val
+            changed.append(f"AUTO_SYNC_HOURS={val}h")
             if scheduler.running:
                 try:
                     scheduler.reschedule_job("plex_sync_job", trigger="interval", hours=val)
@@ -565,14 +588,21 @@ def save_settings(
                     logger.warning(f"Failed to reschedule sync job: {e}")
     if auto_recommendations_hours is not None and auto_recommendations_hours.strip().isdigit():
         val = int(auto_recommendations_hours.strip())
-        if val > 0:
+        if val > 0 and val != settings.auto_recommendations_hours:
             settings.save_setting("AUTO_RECOMMENDATIONS_HOURS", str(val))
             settings.auto_recommendations_hours = val
+            changed.append(f"AUTO_RECOMMENDATIONS_HOURS={val}h")
             if scheduler.running:
                 try:
                     scheduler.reschedule_job("plex_recommendations_job", trigger="interval", hours=val)
                 except Exception as e:
                     logger.warning(f"Failed to reschedule recommendations job: {e}")
+
+    logger.info(
+        "Admin '%s' saved configuration changes: %s",
+        user.get("username") or user.get("user_key"),
+        ", ".join(changed) if changed else "no value changes"
+    )
     return RedirectResponse(url="/settings?saved=true", status_code=303)
 
 @app.get("/settings/jobs", response_class=HTMLResponse)
@@ -672,6 +702,7 @@ def api_clear_user_data(request: Request, user_key: str = Form(...)):
     if not admin or not admin.get("is_admin"):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     clear_user_data(user_key)
+    logger.info("Admin '%s' wiped all watch data and cached recommendations for user '%s'.", admin.get("username"), user_key)
     return RedirectResponse(url="/settings/system?cleared=1", status_code=303)
 
 
@@ -682,7 +713,7 @@ def logs_page(request: Request, level: Optional[str] = None, q: Optional[str] = 
         return RedirectResponse(url="/login?next=/settings/logs", status_code=303)
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Administrator access required.")
-    logs = get_system_logs(limit=250, level=level, search=q)
+    logs = log_handler.get_logs(limit=250, level=level, search=q)
     return templates.TemplateResponse(
         request=request,
         name="logs.html",
@@ -699,12 +730,27 @@ def logs_page(request: Request, level: Optional[str] = None, q: Optional[str] = 
     )
 
 
+@app.get("/api/logs/export")
+def api_export_logs(request: Request, format: str = "text"):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Administrator access required.")
+    if format == "json":
+        return JSONResponse(log_handler.get_logs(limit=1000))
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=log_handler.export_text(limit=1000),
+        headers={"Content-Disposition": "attachment; filename=mindarr_logs.txt"}
+    )
+
+
 @app.post("/api/logs/truncate")
 def api_truncate_logs(request: Request, days: int = Form(7)):
     user = get_current_user(request)
     if not user or not user.get("is_admin"):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    count = truncate_system_logs(days=days)
+    count = log_handler.truncate(days=days)
+    logger.info("Admin '%s' triggered manual log truncation (>%s days). Pruned %s records.", user.get("username"), days, count)
     return RedirectResponse(url=f"/settings/logs?truncated={count}", status_code=303)
 
 
@@ -713,7 +759,8 @@ def api_clear_logs(request: Request):
     user = get_current_user(request)
     if not user or not user.get("is_admin"):
         return JSONResponse({"error": "forbidden"}, status_code=403)
-    clear_all_system_logs()
+    logger.info("Admin '%s' wiped all system logs.", user.get("username"))
+    log_handler.clear()
     return RedirectResponse(url="/settings/logs?cleared=1", status_code=303)
 
 @app.get("/login", response_class=HTMLResponse)
@@ -732,6 +779,9 @@ def login_page(request: Request):
 
 @app.get("/logout")
 def logout(request: Request):
+    user = get_current_user(request)
+    if user:
+        logger.info("User '%s' (%s) signed out.", user.get("username") or user.get("title"), user.get("user_key"))
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
@@ -768,6 +818,11 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
             "is_admin": True,
         })
         request.session["user_key"] = account["user_key"]
+        logger.info(
+            "Initial setup: user '%s' (%s) registered as Administrator and server token owner.",
+            account.get("username") or account.get("title"),
+            account.get("user_key")
+        )
         return JSONResponse({"claimed": True, "authorized": True, "is_admin": True,
                              "redirect": "/settings"})
 
@@ -780,11 +835,22 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
         owner_id=admin.get("user_key"),
     )
     if not allowed:
+        logger.warning(
+            "Sign-in denied for user '%s' (%s): not authorized on linked server '%s'.",
+            account.get("username") or account.get("title"),
+            account.get("user_key"),
+            settings.plex_machine_id
+        )
         return JSONResponse({"claimed": True, "authorized": False,
                              "message": "You do not have access to this Plex server."})
 
     create_or_update_user({**account, "plex_token": token, "is_admin": False})
     request.session["user_key"] = account["user_key"]
+    logger.info(
+        "User '%s' (%s) signed in successfully.",
+        account.get("username") or account.get("title"),
+        account.get("user_key")
+    )
     return JSONResponse({"claimed": True, "authorized": True, "is_admin": False,
                          "redirect": "/"})
 
@@ -870,6 +936,16 @@ def request_overseerr(
         is_4k=is_4k,
         seasons=parsed_seasons,
         user_id=overseerr_user_id
+    )
+
+    logger.info(
+        "User '%s' submitted Overseerr %s request (TMDb: %s, overseerr_user_id=%s, result=%s): %s",
+        user.get("username") or user.get("user_key"),
+        media_type,
+        tmdb_id,
+        overseerr_user_id or "admin_fallback",
+        "success" if success else "failed",
+        message
     )
     return JSONResponse({"success": success, "message": message, "overseerr_user_id": overseerr_user_id})
 

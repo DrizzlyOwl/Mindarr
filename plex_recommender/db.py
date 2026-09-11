@@ -1454,3 +1454,7 @@ class SQLiteLogHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
+
+# Export alias
+LogHandler = SQLiteLogHandler
+

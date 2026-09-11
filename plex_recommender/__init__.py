@@ -2,3 +2,8 @@
 
 __version__ = "1.0.0"
 
+from plex_recommender.logs import setup_logging, log_handler, LogHandler
+
+setup_logging()
+
+

@@ -129,6 +129,11 @@ class JobManager:
         job_id = start_job(db_job_type, trigger, user_key)
         self.running_jobs["sync"]["job_id"] = job_id
 
+        logger.info(
+            "Job 'Plex & Tautulli Sync' (ID: %s) started [trigger: %s, target: %s]",
+            job_id, trigger, f"user {user_key}" if user_key else "all users"
+        )
+
         def _update_progress(msg: str, prog: float):
             with self._lock:
                 if "sync" in self.running_jobs:
@@ -141,13 +146,16 @@ class JobManager:
 
         try:
             if user_key:
+                logger.info("Job 'Plex & Tautulli Sync' (ID: %s): Syncing watch history for user %s...", job_id, user_key)
                 sync_plex_data(user_key=user_key, progress_callback=_update_progress)
                 detail = f"Manual sync completed for user {user_key}."
             else:
                 _update_progress("Scanning library metadata...", 0.1)
+                logger.info("Job 'Plex & Tautulli Sync' (ID: %s): Scanning Plex library catalog metadata...", job_id)
                 sync_plex_data(progress_callback=_update_progress)
 
                 _update_progress("Discovering shared users...", 0.5)
+                logger.info("Job 'Plex & Tautulli Sync' (ID: %s): Discovering and registering shared Plex users...", job_id)
                 discover_and_register_shared_users()
 
                 users = get_all_users()
@@ -170,6 +178,7 @@ class JobManager:
                 self.sync_state["status"] = "Sync completed!"
                 self.sync_state["progress"] = 100.0
             finish_job(job_id, "success", detail)
+            logger.info("Job 'Plex & Tautulli Sync' (ID: %s) completed successfully: %s", job_id, detail)
 
             if chain_recommendations:
                 logger.info("Chaining user recommendations pre-fetch after sync...")
@@ -220,6 +229,11 @@ class JobManager:
         job_id = start_job("recommendations_sync", trigger, user_key)
         self.running_jobs["recommendations"]["job_id"] = job_id
 
+        logger.info(
+            "Job 'User Recommendations' (ID: %s) started [trigger: %s, target: %s]",
+            job_id, trigger, f"user {user_key}" if user_key else "all users"
+        )
+
         def _update_progress(msg: str, prog: float):
             with self._lock:
                 if "recommendations" in self.running_jobs:
@@ -231,6 +245,7 @@ class JobManager:
         try:
             if not settings.tmdb_api_key:
                 err = "TMDb API key is not configured. Cannot generate recommendations."
+                logger.warning("Job 'User Recommendations' (ID: %s) skipped: %s", job_id, err)
                 finish_job(job_id, "failed", err)
                 return {"success": False, "job_id": job_id, "error": err}
 
@@ -242,6 +257,7 @@ class JobManager:
             users_with_history = [u for u in target_users if has_user_history(u["user_key"])]
             if not users_with_history:
                 msg = "No users with watch history found. Recommendations require watch history."
+                logger.info("Job 'User Recommendations' (ID: %s): %s", job_id, msg)
                 finish_job(job_id, "success", msg)
                 return {"success": True, "job_id": job_id, "detail": msg}
 
@@ -276,6 +292,7 @@ class JobManager:
             _update_progress("Recommendations pre-computation complete!", 1.0)
             detail = f"Precomputed recommendations for {success_count} user(s)."
             finish_job(job_id, "success", detail)
+            logger.info("Job 'User Recommendations' (ID: %s) completed successfully: %s", job_id, detail)
             return {"success": True, "job_id": job_id, "detail": detail}
         except Exception as e:
             logger.error(f"Recommendations job error: {e}")
@@ -314,6 +331,11 @@ class JobManager:
             if "truncate_logs" in self.running_jobs:
                 self.running_jobs["truncate_logs"]["job_id"] = job_id
 
+        logger.info(
+            "Job 'Truncate Logs' (ID: %s) started [trigger: %s, retention: %s days]",
+            job_id, trigger, retention_days
+        )
+
         def _update_progress(msg: str, pct: float):
             with self._lock:
                 if "truncate_logs" in self.running_jobs:
@@ -328,6 +350,7 @@ class JobManager:
             _update_progress(f"Pruned {deleted_count} log entries.", 1.0)
             detail = f"Pruned {deleted_count} log record(s) older than {retention_days} days."
             finish_job(job_id, "success", detail)
+            logger.info("Job 'Truncate Logs' (ID: %s) completed successfully: %s", job_id, detail)
             return {"success": True, "job_id": job_id, "detail": detail, "deleted_count": deleted_count}
         except Exception as e:
             logger.error(f"Log truncation job error: {e}")
