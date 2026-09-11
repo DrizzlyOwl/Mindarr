@@ -15,6 +15,7 @@ from plex_recommender.config import settings
 from plex_recommender.logs import log_handler, LogHandler
 from plex_recommender.db import (
     init_db, get_stats, set_setting, get_setting, clear_recommendations_cache,
+    clear_user_recommendations_cache,
     admin_exists, get_admin, get_user, get_all_users, create_or_update_user,
     has_user_history, start_job, finish_job, get_job_history, clear_job_history,
     get_database_stats, get_user_data_summary, clear_user_data,
@@ -924,6 +925,28 @@ def request_overseerr(
     elif media_type in ("show", "tv"):
         parsed_seasons = [1]
 
+    # Server-wide duplicate check: prevent requesting if already in Overseerr queue
+    media_info = overseerr.get_media_info(tmdb_id=tmdb_id, media_type=media_type)
+    if media_info.get("exists") and media_info.get("status_code") in (2, 3, 4, 5):
+        status_name = media_info.get("status_name", "PENDING")
+        if status_name == "AVAILABLE":
+            dup_msg = "This title is already available on the server."
+        elif status_name == "PROCESSING":
+            dup_msg = "This title is already downloading in the server queue."
+        elif status_name == "PARTIALLY_AVAILABLE":
+            dup_msg = "This title is already partially available on the server."
+        else:
+            dup_msg = "This title has already been requested on the server."
+
+        logger.info(
+            "User '%s' attempted to request %s TMDb %s, but it is already in queue (%s).",
+            user.get("username") or user.get("user_key"),
+            media_type,
+            tmdb_id,
+            status_name
+        )
+        return JSONResponse({"success": False, "already_requested": True, "message": dup_msg})
+
     overseerr_user_id = overseerr.resolve_user_id(
         plex_user_key=user.get("user_key"),
         email=user.get("email"),
@@ -937,6 +960,10 @@ def request_overseerr(
         seasons=parsed_seasons,
         user_id=overseerr_user_id
     )
+
+    if success:
+        overseerr.mark_queued(tmdb_id=tmdb_id, media_type=media_type, status_code=2)
+        clear_user_recommendations_cache(user["user_key"])
 
     logger.info(
         "User '%s' submitted Overseerr %s request (TMDb: %s, overseerr_user_id=%s, result=%s): %s",

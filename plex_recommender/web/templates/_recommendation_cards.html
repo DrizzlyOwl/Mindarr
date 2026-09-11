@@ -95,6 +95,17 @@
             <div class="absolute top-3 right-3 flex items-center gap-1.5">
                 {% if item.available_on_plex %}
                 <span class="bg-emerald-500/90 backdrop-blur text-gray-950 text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider">On Plex</span>
+                {% elif item.overseerr_requested %}
+                {% if item.overseerr_status == 'PROCESSING' %}
+                <span class="bg-indigo-500/90 backdrop-blur text-white text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider inline-flex items-center gap-1 shadow-md">
+                    <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                    <span>Downloading</span>
+                </span>
+                {% elif item.overseerr_status == 'PARTIALLY_AVAILABLE' %}
+                <span class="bg-emerald-500/90 backdrop-blur text-gray-950 text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider">Partial</span>
+                {% else %}
+                <span class="bg-amber-500/90 backdrop-blur text-gray-950 text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider">In Queue</span>
+                {% endif %}
                 {% endif %}
                 <span class="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-200 text-xs font-semibold px-2.5 py-1 rounded-lg uppercase tracking-wider">
                     {{ item.media_type }}
@@ -193,6 +204,8 @@
                     </div>
                     {% if item.available_on_plex %}
                     <span class="bg-emerald-500/90 text-gray-950 text-xs font-bold px-2 py-0.5 rounded-lg uppercase tracking-wider">On Plex</span>
+                    {% elif item.overseerr_requested %}
+                    <span class="bg-amber-500/90 text-gray-950 text-xs font-bold px-2 py-0.5 rounded-lg uppercase tracking-wider">In Queue</span>
                     {% endif %}
                 </div>
             </div>
@@ -277,6 +290,18 @@
                     <span>Available on Plex</span>
                 </div>
                 {% endif %}
+                {% elif item.overseerr_requested %}
+                <!-- Already in Overseerr Queue: Informative locked state linking to Overseerr -->
+                <a href="{{ item.overseerr_url }}" target="_blank" rel="noopener noreferrer" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 font-bold text-xs transition shadow" title="Already in Overseerr request queue on this server. Click to view on Overseerr.">
+                    <svg class="w-4 h-4 fill-current text-indigo-400 shrink-0" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                    </svg>
+                    <span>
+                        {% if item.overseerr_status == 'PROCESSING' %}Downloading in Overseerr
+                        {% elif item.overseerr_status == 'PARTIALLY_AVAILABLE' %}Partially Available in Overseerr
+                        {% else %}Already in Request Queue{% endif %}
+                    </span>
+                </a>
                 {% elif has_overseerr %}
                 <!-- Overseerr 1-Click Request Button -->
                 <button type="button" onclick="requestOverseerr('{{ item.tmdb_id }}', '{{ item.media_type }}', this)" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-lg shadow-indigo-500/20 transition">

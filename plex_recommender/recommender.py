@@ -431,6 +431,14 @@ class ContentRecommender:
         items_for_ext = [(int(c["tmdb_id"]), c["media_type"]) for c in candidates_to_enrich]
         ext_ids_map = self._get_external_ids_safe(items_for_ext)
 
+        # Check Overseerr active request queue (server-wide)
+        overseerr_queue = {}
+        if settings.overseerr_api_key and settings.overseerr_url:
+            try:
+                overseerr_queue = overseerr.get_request_queue()
+            except Exception as e:
+                logger.debug(f"Failed to load Overseerr queue for recommendations: {e}")
+
         enriched_recommendations = []
         for cand in candidates_to_enrich:
             tmdb_str = cand["tmdb_id"]
@@ -449,6 +457,18 @@ class ContentRecommender:
             cand["imdb_url"] = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else None
             cand["tmdb_url"] = f"https://www.themoviedb.org/{cand['media_type']}/{tmdb_str}"
             cand["overseerr_url"] = overseerr.get_web_url(int(tmdb_str), media_type=cand["media_type"])
+
+            # Check Overseerr server-wide queue status (prevents duplicate requests)
+            cand_key = f"{cand['media_type']}_{tmdb_str}"
+            q_info = overseerr_queue.get(cand_key)
+            if q_info and q_info.get("status_code") in (2, 3, 4):
+                cand["overseerr_requested"] = True
+                cand["overseerr_status"] = q_info.get("status_name", "PENDING")
+                cand["overseerr_status_code"] = q_info.get("status_code", 2)
+            else:
+                cand["overseerr_requested"] = False
+                cand["overseerr_status"] = None
+                cand["overseerr_status_code"] = None
 
             # Check Plex library availability
             avail_info = None

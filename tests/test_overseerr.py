@@ -119,3 +119,52 @@ def test_overseerr_resolve_user_id(mock_get):
     assert client.resolve_user_id(plex_user_key="999999", email="unknown@plex.local", username="unknown") is None
 
 
+@patch("requests.get")
+def test_overseerr_get_request_queue(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "results": [
+            {
+                "id": 1,
+                "status": 1,
+                "media": {"id": 101, "tmdbId": 27205, "mediaType": "movie", "status": 2}  # Pending
+            },
+            {
+                "id": 2,
+                "status": 2,
+                "media": {"id": 102, "tmdbId": 70523, "mediaType": "tv", "status": 3}     # Processing (downloading)
+            },
+            {
+                "id": 3,
+                "status": 2,
+                "media": {"id": 103, "tmdbId": 80000, "mediaType": "movie", "status": 5}  # Available (not in active queue)
+            }
+        ]
+    }
+    mock_get.return_value = mock_resp
+
+    client = OverseerrClient(base_url="http://10.255.10.30:5055", api_key="test_key")
+    queue = client.get_request_queue(force_refresh=True)
+
+    assert "movie_27205" in queue
+    assert queue["movie_27205"]["status_code"] == 2
+    assert queue["movie_27205"]["status_name"] == "PENDING"
+
+    # TV show should be indexed under both tv_ and show_
+    assert "tv_70523" in queue
+    assert "show_70523" in queue
+    assert queue["tv_70523"]["status_code"] == 3
+    assert queue["tv_70523"]["status_name"] == "PROCESSING"
+
+    # Status 5 (Available) is not in the active request queue
+    assert "movie_80000" not in queue
+
+    # Test mark_queued adds immediately to in-memory queue
+    client.mark_queued(tmdb_id=99999, media_type="movie", status_code=2)
+    updated_queue = client.get_request_queue()
+    assert "movie_99999" in updated_queue
+    assert updated_queue["movie_99999"]["status_name"] == "PENDING"
+
+
+

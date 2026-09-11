@@ -758,6 +758,7 @@ def test_api_overseerr_request_resolves_user_id(monkeypatch):
     from unittest.mock import MagicMock
 
     mock_overseerr = MagicMock()
+    mock_overseerr.get_media_info.return_value = {"exists": False, "status_code": 1}
     mock_overseerr.resolve_user_id.return_value = 42
     mock_overseerr.request_media.return_value = (True, "Request submitted!")
     monkeypatch.setattr(webapp, "overseerr", mock_overseerr)
@@ -771,6 +772,87 @@ def test_api_overseerr_request_resolves_user_id(monkeypatch):
         assert data["overseerr_user_id"] == 42
         mock_overseerr.resolve_user_id.assert_called_once_with(plex_user_key=USER, email="a@x.com", username="alice")
         mock_overseerr.request_media.assert_called_once_with(tmdb_id=12345, media_type="movie", is_4k=False, seasons=None, user_id=42)
+
+
+def test_api_overseerr_request_blocks_duplicates(monkeypatch):
+    from plex_recommender.web import app as webapp
+    from unittest.mock import MagicMock
+
+    mock_overseerr = MagicMock()
+    mock_overseerr.get_media_info.return_value = {
+        "exists": True,
+        "status_code": 3,
+        "status_name": "PROCESSING"
+    }
+    monkeypatch.setattr(webapp, "overseerr", mock_overseerr)
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.post("/api/overseerr/request", data={"tmdb_id": "12345", "media_type": "movie"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is False
+        assert data.get("already_requested") is True
+        assert "already downloading in the server queue" in data["message"]
+        # request_media should NEVER be called when already queued
+        mock_overseerr.request_media.assert_not_called()
+
+
+def test_recommendation_card_renders_anonymous_queue_status():
+    from plex_recommender.web.app import templates
+    from starlette.requests import Request
+
+    fake_scope = {"type": "http", "method": "GET", "path": "/"}
+    req = Request(fake_scope)
+
+    # 1. Processing / Downloading item
+    card_html = templates.get_template("_recommendation_cards.html").render({
+        "request": req,
+        "results": {
+            "recommendations": [
+                {
+                    "tmdb_id": "27205",
+                    "media_type": "movie",
+                    "title": "Inception",
+                    "overseerr_requested": True,
+                    "overseerr_status": "PROCESSING",
+                    "overseerr_url": "http://overseerr/movie/27205",
+                    "available_on_plex": False,
+                }
+            ]
+        },
+        "has_overseerr": True,
+        "low_bandwidth": False
+    })
+
+    assert "Downloading in Overseerr" in card_html
+    assert "Downloading" in card_html
+    # Ensure no personal username is shown
+    assert "alice" not in card_html
+
+    # 2. Pending approval item
+    card_html_pending = templates.get_template("_recommendation_cards.html").render({
+        "request": req,
+        "results": {
+            "recommendations": [
+                {
+                    "tmdb_id": "70523",
+                    "media_type": "show",
+                    "title": "Dark",
+                    "overseerr_requested": True,
+                    "overseerr_status": "PENDING",
+                    "overseerr_url": "http://overseerr/tv/70523",
+                    "available_on_plex": False,
+                }
+            ]
+        },
+        "has_overseerr": True,
+        "low_bandwidth": False
+    })
+
+    assert "Already in Request Queue" in card_html_pending
+    assert "In Queue" in card_html_pending
+
 
 
 def test_api_recommendations_dismiss_and_undismiss():

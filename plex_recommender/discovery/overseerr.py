@@ -22,6 +22,8 @@ class OverseerrClient:
         self._api_key_override = api_key
         self._users_cache: Optional[List[Dict[str, Any]]] = None
         self._users_cache_time: float = 0.0
+        self._queue_cache: Optional[Dict[str, Dict[str, Any]]] = None
+        self._queue_cache_time: float = 0.0
 
     @property
     def base_url(self) -> str:
@@ -145,6 +147,73 @@ class OverseerrClient:
             "status_code": 1,
             "status_name": "NOT_REQUESTED"
         }
+
+    def get_request_queue(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+        """Fetch server-wide active request queue from Overseerr, cached in memory for 60 seconds."""
+        now = time.time()
+        if not force_refresh and self._queue_cache is not None and (now - self._queue_cache_time < 60):
+            return self._queue_cache
+
+        key = self.api_key or settings.overseerr_api_key
+        if not key or not self.base_url:
+            return {}
+
+        url = f"{self.base_url}/api/v1/request?take=500&skip=0&filter=all"
+        queue_index: Dict[str, Dict[str, Any]] = {}
+        try:
+            resp = requests.get(url, headers=self._get_headers(), timeout=6)
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                for r in results:
+                    media = r.get("media") or {}
+                    tmdb_id = media.get("tmdbId")
+                    if not tmdb_id:
+                        continue
+                    mtype = media.get("mediaType") or r.get("type") or "movie"
+                    status_code = media.get("status")
+                    if status_code is None:
+                        # Fallback to request level status: 1=PENDING, 2=APPROVED(PROCESSING)
+                        req_status = r.get("status", 1)
+                        status_code = 2 if req_status == 1 else 3
+
+                    # Only track active queue statuses (2=PENDING, 3=PROCESSING, 4=PARTIALLY_AVAILABLE)
+                    if status_code in (2, 3, 4):
+                        status_name = STATUS_MAP.get(status_code, "PENDING")
+                        info = {
+                            "status_code": status_code,
+                            "status_name": status_name,
+                            "request_id": r.get("id"),
+                            "tmdb_id": tmdb_id,
+                            "media_type": mtype,
+                        }
+                        queue_index[f"{mtype}_{tmdb_id}"] = info
+                        if mtype in ("show", "tv"):
+                            queue_index[f"show_{tmdb_id}"] = info
+                            queue_index[f"tv_{tmdb_id}"] = info
+
+                self._queue_cache = queue_index
+                self._queue_cache_time = now
+                return queue_index
+        except Exception as e:
+            logger.debug(f"Failed to fetch Overseerr request queue: {e}")
+
+        return self._queue_cache or {}
+
+    def mark_queued(self, tmdb_id: int, media_type: str, status_code: int = 2):
+        """Record an item in the active in-memory queue cache immediately."""
+        if self._queue_cache is None:
+            self._queue_cache = {}
+        info = {
+            "status_code": status_code,
+            "status_name": STATUS_MAP.get(status_code, "PENDING"),
+            "tmdb_id": tmdb_id,
+            "media_type": media_type,
+        }
+        self._queue_cache[f"{media_type}_{tmdb_id}"] = info
+        if media_type in ("show", "tv"):
+            self._queue_cache[f"show_{tmdb_id}"] = info
+            self._queue_cache[f"tv_{tmdb_id}"] = info
 
     def request_media(
         self,
