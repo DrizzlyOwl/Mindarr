@@ -1,6 +1,7 @@
 import logging
+import time
 import requests
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from plex_recommender.config import settings
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,8 @@ class OverseerrClient:
         # settings on each access so config changes take effect immediately.
         self._base_url_override = base_url.rstrip("/") if base_url is not None else None
         self._api_key_override = api_key
+        self._users_cache: Optional[List[Dict[str, Any]]] = None
+        self._users_cache_time: float = 0.0
 
     @property
     def base_url(self) -> str:
@@ -60,6 +63,64 @@ class OverseerrClient:
         except Exception as e:
             return False, f"Connection failed: {e}"
 
+    def get_users(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Fetch list of Overseerr users, cached in memory for 15 minutes."""
+        now = time.time()
+        if not force_refresh and self._users_cache is not None and (now - self._users_cache_time < 900):
+            return self._users_cache
+
+        url = f"{self.base_url}/api/v1/user?take=100&skip=0"
+        try:
+            resp = requests.get(url, headers=self._get_headers(), timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                users = data.get("results", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                self._users_cache = users
+                self._users_cache_time = now
+                return users
+        except Exception as e:
+            logger.debug(f"Failed to fetch Overseerr users: {e}")
+        return self._users_cache or []
+
+    def resolve_user_id(
+        self,
+        plex_user_key: Optional[str] = None,
+        email: Optional[str] = None,
+        username: Optional[str] = None
+    ) -> Optional[int]:
+        """Resolve an Overseerr internal user ID matching a Plex user identity."""
+        users = self.get_users()
+        if not users:
+            return None
+
+        clean_pkey = str(plex_user_key).strip() if plex_user_key else None
+        clean_email = email.strip().lower() if email else None
+        clean_username = username.strip().lower() if username else None
+
+        # 1. Match by Plex account ID (most accurate)
+        if clean_pkey:
+            for u in users:
+                u_plex_id = u.get("plexId")
+                if u_plex_id is not None and str(u_plex_id).strip() == clean_pkey:
+                    return int(u["id"])
+
+        # 2. Match by email
+        if clean_email:
+            for u in users:
+                u_email = (u.get("email") or "").strip().lower()
+                if u_email and u_email == clean_email:
+                    return int(u["id"])
+
+        # 3. Match by username / plexUsername
+        if clean_username:
+            for u in users:
+                u_name = (u.get("username") or "").strip().lower()
+                u_pname = (u.get("plexUsername") or "").strip().lower()
+                if clean_username in (u_name, u_pname):
+                    return int(u["id"])
+
+        return None
+
     def get_media_info(self, tmdb_id: int, media_type: str = "movie") -> Dict[str, Any]:
         """Fetch media status from Overseerr (PENDING, PROCESSING, AVAILABLE, etc.)."""
         endpoint_type = "movie" if media_type == "movie" else "tv"
@@ -90,7 +151,8 @@ class OverseerrClient:
         tmdb_id: int,
         media_type: str = "movie",
         is_4k: bool = False,
-        seasons: Any = None
+        seasons: Any = None,
+        user_id: Optional[int] = None
     ) -> Tuple[bool, str]:
         """Submit a new media request to Overseerr. TV shows default to Season 1 only."""
         key = self.api_key or settings.overseerr_api_key
@@ -105,6 +167,9 @@ class OverseerrClient:
             "mediaId": int(tmdb_id),
             "is4k": is_4k
         }
+        if user_id is not None:
+            payload["userId"] = int(user_id)
+
         if endpoint_type == "tv":
             # Default TV requests to only Season 1 ([1]) unless explicitly specified
             payload["seasons"] = [1] if seasons is None else seasons

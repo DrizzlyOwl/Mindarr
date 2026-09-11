@@ -11,18 +11,19 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - TZ=Europe/London
-      - PLEX_URL=https://10.255.10.30:32400
-      - PLEX_TOKEN=                  # Optional: set here or authenticate via Web UI
-      - TMDB_API_KEY=                # Optional: set here or enter in Web UI
-      - OVERSEERR_URL=http://10.255.10.30:5055
-      - OVERSEERR_API_KEY=            # Optional: set here or enter in Web UI
-      - TAUTULLI_URL=                # Optional: enables per-user watch history enrichment
-      - TAUTULLI_API_KEY=            # Optional: set here or enter in Web UI
+      - TZ=${TZ:-Europe/London}
+      - PLEX_URL=${PLEX_URL:-https://10.255.10.30:32400}
+      - PLEX_TOKEN=${PLEX_TOKEN:-}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OVERSEERR_URL=${OVERSEERR_URL:-http://10.255.10.30:5055}
+      - OVERSEERR_API_KEY=${OVERSEERR_API_KEY:-}
+      - TAUTULLI_URL=${TAUTULLI_URL:-}
+      - TAUTULLI_API_KEY=${TAUTULLI_API_KEY:-}
       - CONFIG_DIR=/config
       - PORT=8080
       - HOST=0.0.0.0
-      - AUTO_SYNC_HOURS=24
+      - AUTO_SYNC_HOURS=${AUTO_SYNC_HOURS:-24}
+      - AUTO_RECOMMENDATIONS_HOURS=${AUTO_RECOMMENDATIONS_HOURS:-24}
     volumes:
       # TrueNAS SCALE: Change left path to your dataset, e.g., /mnt/tank/appdata/plex-recommender:/config
       - ./config:/config

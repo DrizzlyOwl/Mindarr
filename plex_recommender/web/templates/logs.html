@@ -1,0 +1,136 @@
+{% extends "layout.html" %}
+
+{% block title %}System Logs{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-6">
+
+    <div>
+        <h1 class="text-2xl font-bold text-white tracking-tight">System Logs & Event History</h1>
+        <p class="text-sm text-slate-400 mt-1">Live operational logs recorded across sync, discovery, recommendation, and authentication pipelines with 7-day retention.</p>
+    </div>
+
+    <!-- Settings sub-navigation -->
+    <div class="flex items-center space-x-1 border-b border-slate-800">
+        <a href="/settings" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Configuration</a>
+        <a href="/settings/jobs" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/jobs' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Jobs</a>
+        <a href="/settings/system" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/system' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">System</a>
+        <a href="/settings/logs" class="px-4 py-2 text-sm font-semibold -mb-px border-b-2 {% if request.url.path == '/settings/logs' %}border-amber-500 text-amber-400{% else %}border-transparent text-slate-400 hover:text-white{% endif %}">Logs</a>
+    </div>
+
+    {% if request.query_params.get('truncated') %}
+    <div class="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm px-4 py-3 rounded-xl flex items-center justify-between">
+        <span>Log truncation complete: pruned {{ request.query_params.get('truncated') }} records older than 7 days.</span>
+    </div>
+    {% elif request.query_params.get('cleared') %}
+    <div class="bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm px-4 py-3 rounded-xl flex items-center justify-between">
+        <span>All system logs cleared.</span>
+    </div>
+    {% endif %}
+
+    <!-- Filter & Action Bar -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <form method="get" action="/settings/logs" class="flex flex-wrap items-center gap-3 flex-1">
+            <div class="w-36">
+                <select name="level" onchange="this.form.submit()" class="w-full bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-xl px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-medium">
+                    <option value="ALL" {% if selected_level == 'ALL' %}selected{% endif %}>All Levels</option>
+                    <option value="INFO" {% if selected_level == 'INFO' %}selected{% endif %}>INFO</option>
+                    <option value="WARNING" {% if selected_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                    <option value="ERROR" {% if selected_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                    <option value="DEBUG" {% if selected_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[200px]">
+                <input type="text" name="q" value="{{ search_query }}" placeholder="Search message or component..." class="w-full bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-xl px-3 py-2 focus:ring-amber-500 focus:border-amber-500 placeholder-slate-500">
+            </div>
+
+            <button type="submit" class="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs transition">
+                Filter
+            </button>
+            {% if search_query or selected_level != 'ALL' %}
+            <a href="/settings/logs" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition">
+                Reset
+            </a>
+            {% endif %}
+        </form>
+
+        <div class="flex items-center gap-2 border-t md:border-t-0 pt-3 md:pt-0 border-slate-800">
+            <span class="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-400 font-mono">
+                Retention: 7 days
+            </span>
+            <form method="post" action="/api/logs/truncate">
+                <input type="hidden" name="days" value="7">
+                <button type="submit" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-semibold transition" title="Manually prune logs older than 7 days">
+                    Prune >7d
+                </button>
+            </form>
+            <form method="post" action="/api/logs/clear" onsubmit="return confirm('Are you sure you want to clear ALL system logs? This cannot be undone.');">
+                <button type="submit" class="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition">
+                    Clear All
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="px-6 py-3 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400">
+            <span>Showing {{ logs|length }} log events (sorted by newest first)</span>
+            <a href="/settings/logs" class="hover:text-amber-400 font-semibold inline-flex items-center space-x-1">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                </svg>
+                <span>Refresh</span>
+            </a>
+        </div>
+
+        {% if not logs %}
+        <div class="p-12 text-center space-y-2">
+            <div class="text-sm font-semibold text-slate-300">No logs found</div>
+            <p class="text-xs text-slate-500">No logged events match the selected criteria.</p>
+        </div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                    <tr class="border-b border-slate-800 text-[11px] font-bold uppercase text-slate-400 bg-slate-950/40">
+                        <th class="py-2.5 px-4 w-44">Timestamp (UTC)</th>
+                        <th class="py-2.5 px-4 w-24">Level</th>
+                        <th class="py-2.5 px-4 w-48">Component</th>
+                        <th class="py-2.5 px-4">Message</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono">
+                    {% for l in logs %}
+                    <tr class="hover:bg-slate-800/30 transition">
+                        <td class="py-2 px-4 text-slate-400 whitespace-nowrap text-[11px]">
+                            {{ l.timestamp }}
+                        </td>
+                        <td class="py-2 px-4 whitespace-nowrap">
+                            {% if l.level == 'ERROR' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">ERROR</span>
+                            {% elif l.level == 'WARNING' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">WARN</span>
+                            {% elif l.level == 'DEBUG' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">DEBUG</span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">INFO</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 px-4 text-amber-400/80 whitespace-nowrap text-[11px]">
+                            {{ l.logger_name }}
+                        </td>
+                        <td class="py-2 px-4 text-slate-200 font-sans text-xs break-words">
+                            {{ l.message }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

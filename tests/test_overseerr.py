@@ -73,3 +73,49 @@ def test_overseerr_request_tv_all_seasons(mock_post):
     payload = call_kwargs["json"]
     assert payload["seasons"] == "all"
 
+
+@patch("requests.post")
+def test_overseerr_request_with_user_id(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {"id": 10, "status": 2}
+    mock_post.return_value = mock_resp
+
+    client = OverseerrClient(base_url="http://10.255.10.30:5055", api_key="test_key")
+    success, msg = client.request_media(tmdb_id=550, media_type="movie", user_id=42)
+    assert success is True
+
+    call_kwargs = mock_post.call_args[1]
+    payload = call_kwargs["json"]
+    assert payload["userId"] == 42
+    assert payload["mediaId"] == 550
+
+
+@patch("requests.get")
+def test_overseerr_resolve_user_id(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "results": [
+            {"id": 1, "plexId": 111111, "email": "admin@plex.local", "username": "admin"},
+            {"id": 5, "plexId": 222222, "email": "user2@plex.local", "username": "user2"},
+            {"id": 8, "plexId": None, "email": "plexless@plex.local", "username": "plexless", "plexUsername": "plexless_user"},
+        ]
+    }
+    mock_get.return_value = mock_resp
+
+    client = OverseerrClient(base_url="http://10.255.10.30:5055", api_key="test_key")
+
+    # Match by plexId
+    assert client.resolve_user_id(plex_user_key="222222") == 5
+
+    # Match by email
+    assert client.resolve_user_id(plex_user_key="999999", email="admin@plex.local") == 1
+
+    # Match by username / plexUsername
+    assert client.resolve_user_id(plex_user_key="999999", username="plexless_user") == 8
+
+    # Unmatched
+    assert client.resolve_user_id(plex_user_key="999999", email="unknown@plex.local", username="unknown") is None
+
+

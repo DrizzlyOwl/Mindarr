@@ -10,6 +10,7 @@ from plex_recommender.db import (
     get_all_users,
     get_user,
     has_user_history,
+    truncate_system_logs,
 )
 from plex_recommender.sync import (
     sync_plex_data,
@@ -31,6 +32,12 @@ JOB_DEFINITIONS = {
         "id": "recommendations",
         "name": "User Recommendations",
         "description": "Pre-computes and caches TMDb discovery recommendations for all users with watch history.",
+        "default_trigger": "scheduled",
+    },
+    "truncate_logs": {
+        "id": "truncate_logs",
+        "name": "Truncate Logs",
+        "description": "Purges system log events older than the 7-day retention limit.",
         "default_trigger": "scheduled",
     },
 }
@@ -277,6 +284,58 @@ class JobManager:
         finally:
             with self._lock:
                 self.running_jobs.pop("recommendations", None)
+
+    def run_truncate_logs(
+        self,
+        trigger: str = "scheduled",
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+        retention_days: int = 7,
+    ) -> Dict[str, Any]:
+        """Truncate system logs older than retention period."""
+        with self._lock:
+            if "truncate_logs" in self.running_jobs:
+                return {
+                    "success": False,
+                    "error": "Log truncation job is already in progress.",
+                    "already_running": True,
+                }
+            self.running_jobs["truncate_logs"] = {
+                "job_type": "truncate_logs",
+                "trigger": trigger,
+                "started_at": datetime.now().isoformat(),
+                "status": "Starting log truncation...",
+                "progress": 0.0,
+                "error": None,
+                "job_id": None,
+            }
+
+        job_id = start_job("truncate_logs", trigger=trigger)
+        with self._lock:
+            if "truncate_logs" in self.running_jobs:
+                self.running_jobs["truncate_logs"]["job_id"] = job_id
+
+        def _update_progress(msg: str, pct: float):
+            with self._lock:
+                if "truncate_logs" in self.running_jobs:
+                    self.running_jobs["truncate_logs"]["status"] = msg
+                    self.running_jobs["truncate_logs"]["progress"] = pct
+            if progress_callback:
+                progress_callback(msg, pct)
+
+        try:
+            _update_progress(f"Scanning system logs for records older than {retention_days} days...", 0.3)
+            deleted_count = truncate_system_logs(days=retention_days)
+            _update_progress(f"Pruned {deleted_count} log entries.", 1.0)
+            detail = f"Pruned {deleted_count} log record(s) older than {retention_days} days."
+            finish_job(job_id, "success", detail)
+            return {"success": True, "job_id": job_id, "detail": detail, "deleted_count": deleted_count}
+        except Exception as e:
+            logger.error(f"Log truncation job error: {e}")
+            finish_job(job_id, "failed", str(e))
+            return {"success": False, "job_id": job_id, "error": str(e)}
+        finally:
+            with self._lock:
+                self.running_jobs.pop("truncate_logs", None)
 
 
 job_manager = JobManager()

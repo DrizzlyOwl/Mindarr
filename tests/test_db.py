@@ -285,3 +285,87 @@ def test_delete_user_cleans_all_records():
     assert len(get_watch_events(USER)) == 0
 
 
+def test_user_dismissals_crud():
+    from plex_recommender.db import dismiss_item, undismiss_item, get_user_dismissals
+
+    dismiss_item(USER, tmdb_id="12345", media_type="movie", title="The Matrix", year=1999, reason="already_watched")
+    dismiss_item(USER, tmdb_id="67890", media_type="show", title="Bad Show", year=2020, reason="not_interested")
+
+    items = get_user_dismissals(USER)
+    assert len(items) == 2
+    assert items[0]["tmdb_id"] == "67890"  # newest first
+    assert items[0]["reason"] == "not_interested"
+    assert items[1]["tmdb_id"] == "12345"
+
+    undismiss_item(USER, tmdb_id="12345")
+    items_after = get_user_dismissals(USER)
+    assert len(items_after) == 1
+    assert items_after[0]["tmdb_id"] == "67890"
+
+
+def test_system_logs_retention_and_truncation():
+    import logging
+    import time
+    from plex_recommender.db import (
+        insert_system_log,
+        get_system_logs,
+        truncate_system_logs,
+        clear_all_system_logs,
+        SQLiteLogHandler
+    )
+
+    now = time.time()
+    ten_days_ago = now - (10 * 86400)
+    eight_days_ago = now - (8 * 86400)
+    three_days_ago = now - (3 * 86400)
+
+    # Insert test logs at different timestamps
+    insert_system_log(level="INFO", logger_name="test.sync", message="10 days old log", epoch=ten_days_ago)
+    insert_system_log(level="WARNING", logger_name="test.recs", message="8 days old warning", epoch=eight_days_ago)
+    insert_system_log(level="ERROR", logger_name="test.overseerr", message="3 days old error", epoch=three_days_ago)
+    insert_system_log(level="INFO", logger_name="test.web", message="Fresh info log", epoch=now)
+
+    # Verify all 4 logs exist, ordered newest first
+    all_logs = get_system_logs(limit=10)
+    assert len(all_logs) == 4
+    assert all_logs[0]["message"] == "Fresh info log"
+    assert all_logs[1]["message"] == "3 days old error"
+    assert all_logs[2]["message"] == "8 days old warning"
+    assert all_logs[3]["message"] == "10 days old log"
+
+    # Filter by level
+    errors = get_system_logs(level="ERROR")
+    assert len(errors) == 1
+    assert errors[0]["message"] == "3 days old error"
+
+    # Filter by search
+    searched = get_system_logs(search="warning")
+    assert len(searched) == 1
+    assert searched[0]["message"] == "8 days old warning"
+
+    # Truncate logs older than 7 days
+    pruned = truncate_system_logs(days=7)
+    assert pruned == 2
+
+    # Verify only records <= 7 days remain
+    remaining = get_system_logs(limit=10)
+    assert len(remaining) == 2
+    assert [r["message"] for r in remaining] == ["Fresh info log", "3 days old error"]
+
+    # Test SQLiteLogHandler
+    logger = logging.getLogger("test_sqlite_handler")
+    handler = SQLiteLogHandler()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.info("Log emitted via handler")
+
+    handled = get_system_logs(search="emitted via handler")
+    assert len(handled) == 1
+    assert handled[0]["level"] == "INFO"
+
+    # Test clear all
+    clear_all_system_logs()
+    assert len(get_system_logs()) == 0
+
+
+

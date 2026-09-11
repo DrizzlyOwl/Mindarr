@@ -128,6 +128,30 @@ def init_db():
     )
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_dismissals (
+        user_key TEXT,
+        tmdb_id TEXT,
+        media_type TEXT,
+        title TEXT,
+        year INTEGER,
+        reason TEXT,           -- 'already_watched' or 'not_interested'
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_key, tmdb_id)
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS system_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        epoch REAL,
+        level TEXT,
+        logger_name TEXT,
+        message TEXT
+    )
+    """)
+
     # Indexes for fast lookup
     cur.execute("CREATE INDEX IF NOT EXISTS idx_watch_viewed_at ON watch_events(viewed_at)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_watch_user ON watch_events(user_key)")
@@ -136,6 +160,9 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_media ON user_media(user_key)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_rec_cache_sync ON recommendations_cache(sync_version)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_job_started ON job_history(started_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_dismissals ON user_dismissals(user_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_epoch ON system_logs(epoch DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level)")
 
     conn.commit()
 
@@ -1249,3 +1276,181 @@ def clear_job_history():
     cur.execute("DELETE FROM job_history")
     conn.commit()
     conn.close()
+
+
+def clear_user_recommendations_cache(user_key: str):
+    """Clear all cached recommendations pools for a specific user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM recommendations_cache WHERE cache_key LIKE ?", (f"{user_key}:%",))
+    conn.commit()
+    conn.close()
+
+
+def dismiss_item(
+    user_key: str,
+    tmdb_id: str,
+    media_type: str = "movie",
+    title: str = "",
+    year: Optional[int] = None,
+    reason: str = "not_interested"
+):
+    """Dismiss a recommendation (already watched outside Plex, or not interested)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    uk = str(user_key)
+    tid = str(tmdb_id).strip()
+
+    cur.execute("""
+    INSERT INTO user_dismissals (user_key, tmdb_id, media_type, title, year, reason, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_key, tmdb_id) DO UPDATE SET
+        reason = excluded.reason,
+        title = COALESCE(excluded.title, user_dismissals.title),
+        year = COALESCE(excluded.year, user_dismissals.year),
+        created_at = CURRENT_TIMESTAMP
+    """, (uk, tid, media_type, title, year, reason))
+
+    # Also add to seen_identifiers so discover queries & in-memory filters drop it immediately
+    cur.execute(
+        "INSERT OR IGNORE INTO seen_identifiers (user_key, id_type, id_value, title, year) VALUES (?, 'tmdb', ?, ?, ?)",
+        (uk, tid.lower(), title, year)
+    )
+    if title:
+        norm_title = normalize_title(title)
+        if norm_title:
+            val = f"{norm_title}::{year or ''}"
+            cur.execute(
+                "INSERT OR IGNORE INTO seen_identifiers (user_key, id_type, id_value, title, year) VALUES (?, 'title_year', ?, ?, ?)",
+                (uk, val, title, year)
+            )
+
+    conn.commit()
+    conn.close()
+
+    clear_user_recommendations_cache(uk)
+
+
+def undismiss_item(user_key: str, tmdb_id: str):
+    """Remove a dismissal, allowing the item to be recommended again if not otherwise seen."""
+    conn = get_connection()
+    cur = conn.cursor()
+    uk = str(user_key)
+    tid = str(tmdb_id).strip()
+
+    # Find dismissal details to remove corresponding seen_identifier
+    cur.execute("SELECT title, year FROM user_dismissals WHERE user_key = ? AND tmdb_id = ?", (uk, tid))
+    row = cur.fetchone()
+
+    cur.execute("DELETE FROM user_dismissals WHERE user_key = ? AND tmdb_id = ?", (uk, tid))
+    cur.execute("DELETE FROM seen_identifiers WHERE user_key = ? AND id_type = 'tmdb' AND id_value = ?", (uk, tid.lower()))
+
+    if row and row["title"]:
+        norm_title = normalize_title(row["title"])
+        val = f"{norm_title}::{row['year'] or ''}"
+        cur.execute("DELETE FROM seen_identifiers WHERE user_key = ? AND id_type = 'title_year' AND id_value = ?", (uk, val))
+
+    conn.commit()
+    conn.close()
+
+    clear_user_recommendations_cache(uk)
+
+
+def get_user_dismissals(user_key: str) -> List[Dict[str, Any]]:
+    """Return all items dismissed by a user, sorted by most recently dismissed."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT user_key, tmdb_id, media_type, title, year, reason, created_at
+    FROM user_dismissals
+    WHERE user_key = ?
+    ORDER BY created_at DESC, rowid DESC
+    """, (str(user_key),))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def insert_system_log(level: str, logger_name: str, message: str, epoch: Optional[float] = None):
+    """Insert a log entry into system_logs table."""
+    if epoch is None:
+        epoch = datetime.now(timezone.utc).timestamp()
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("""
+        INSERT INTO system_logs (timestamp, epoch, level, logger_name, message)
+        VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?)
+        """, (epoch, level, logger_name, message))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_system_logs(
+    limit: int = 250,
+    level: Optional[str] = None,
+    search: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Retrieve system logs sorted by most recent timestamp first (epoch DESC)."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    query = "SELECT id, timestamp, epoch, level, logger_name, message FROM system_logs WHERE 1=1"
+    params: List[Any] = []
+
+    if level and level.upper() != "ALL":
+        query += " AND level = ?"
+        params.append(level.upper())
+
+    if search and search.strip():
+        query += " AND (message LIKE ? OR logger_name LIKE ?)"
+        term = f"%{search.strip()}%"
+        params.extend([term, term])
+
+    query += " ORDER BY epoch DESC, id DESC LIMIT ?"
+    params.append(max(1, min(int(limit), 1000)))
+
+    cur.execute(query, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def truncate_system_logs(days: int = 7) -> int:
+    """Delete logs older than retention days (default 7 days). Returns number of pruned rows."""
+    cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM system_logs WHERE epoch < ?", (cutoff,))
+    count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
+def clear_all_system_logs():
+    """Wipe all system logs."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM system_logs")
+    conn.commit()
+    conn.close()
+
+
+class SQLiteLogHandler(logging.Handler):
+    """Thread-safe logging handler that persists log records into the system_logs SQLite table."""
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            msg = self.format(record)
+            epoch = record.created
+            level = record.levelname
+            name = record.name
+            if name.startswith("sqlite") or name == "plex_recommender.db":
+                return
+            insert_system_log(level=level, logger_name=name, message=msg, epoch=epoch)
+        except Exception:
+            self.handleError(record)
+

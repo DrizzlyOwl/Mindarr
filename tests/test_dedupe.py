@@ -455,3 +455,66 @@ def test_romance_filter_strictly_excludes_crime_drama():
     assert "The Sopranos Clone" not in rec_titles
 
 
+def test_dismiss_item_excludes_candidate_and_undismiss_restores():
+    from plex_recommender.db import dismiss_item, undismiss_item, get_user_dismissals
+
+    # Set up watch history so recommendations have profile data
+    upsert_user_media(USER, {
+        "item_id": "movie_seed",
+        "media_type": "movie",
+        "title": "SciFi Classic",
+        "year": 2015,
+        "genres": ["Sci-Fi"],
+        "imdb_id": "tt9999999",
+        "tmdb_id": "99999"
+    })
+
+    mock_tmdb = MagicMock()
+    mock_tmdb.map_genres.return_value = [878]
+    mock_tmdb.discover_movies.return_value = [
+        {"id": 44444, "title": "Seen Elsewhere Movie", "release_date": "2021-01-01", "vote_average": 7.5, "vote_count": 500, "genre_ids": [878], "poster_path": "/p.jpg", "overview": "..."}
+    ]
+    mock_tmdb.discover_tv.return_value = []
+    mock_tmdb.get_external_ids.return_value = {"imdb_id": None, "tvdb_id": None}
+    mock_tmdb.format_item.return_value = {
+        "tmdb_id": "44444",
+        "media_type": "movie",
+        "title": "Seen Elsewhere Movie",
+        "year": 2021,
+        "rating": 7.5,
+        "vote_count": 500,
+        "summary": "...",
+        "poster_url": None,
+        "genres": ["Sci-Fi"],
+        "original_language": "en"
+    }
+
+    rec_engine = ContentRecommender(tmdb_client=mock_tmdb)
+
+    # 1. Initially appears in recommendations
+    res1 = rec_engine.get_recommendations(user_key=USER, media_type="movie", force_refresh=True)
+    assert any(r["tmdb_id"] == "44444" for r in res1["recommendations"])
+
+    # 2. Dismiss as watched outside Plex
+    dismiss_item(USER, tmdb_id="44444", media_type="movie", title="Seen Elsewhere Movie", year=2021, reason="already_watched")
+
+    # Verify recorded in dismissals
+    dismissals = get_user_dismissals(USER)
+    assert len(dismissals) == 1
+    assert dismissals[0]["tmdb_id"] == "44444"
+    assert dismissals[0]["reason"] == "already_watched"
+
+    # 3. Now excluded from recommendations
+    res2 = rec_engine.get_recommendations(user_key=USER, media_type="movie", force_refresh=True)
+    assert not any(r["tmdb_id"] == "44444" for r in res2["recommendations"])
+
+    # 4. Undismiss
+    undismiss_item(USER, tmdb_id="44444")
+    assert len(get_user_dismissals(USER)) == 0
+
+    # 5. Restored to recommendations
+    res3 = rec_engine.get_recommendations(user_key=USER, media_type="movie", force_refresh=True)
+    assert any(r["tmdb_id"] == "44444" for r in res3["recommendations"])
+
+
+

@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from plex_recommender import __version__
 from plex_recommender.config import settings
 from plex_recommender.db import (
     init_db, get_stats, set_setting, get_setting, clear_recommendations_cache,
@@ -17,6 +18,9 @@ from plex_recommender.db import (
     has_user_history, start_job, finish_job, get_job_history, clear_job_history,
     get_database_stats, get_user_data_summary, clear_user_data,
     get_enriched_watch_events, get_watch_source_breakdown,
+    dismiss_item, undismiss_item, get_user_dismissals,
+    get_system_logs, truncate_system_logs, clear_all_system_logs,
+    SQLiteLogHandler,
 )
 from plex_recommender.auth import (
     create_plex_pin, check_plex_pin, verify_plex_connection,
@@ -35,6 +39,7 @@ logger = logging.getLogger("plex_recommender.web")
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals["app_version"] = __version__
 
 SESSION_MAX_AGE = 3600  # 1 hour
 
@@ -58,6 +63,12 @@ def scheduled_recommendations_job():
         return
     logger.info("Starting scheduled recommendations pre-fetch...")
     job_manager.run_recommendations(trigger="scheduled")
+
+
+def scheduled_log_cleanup_job():
+    """Background scheduled job: truncate logs older than 7 days."""
+    logger.info("Starting scheduled log truncation (7-day retention)...")
+    job_manager.run_truncate_logs(trigger="scheduled", retention_days=7)
 
 
 def get_scheduled_jobs_info():
@@ -90,12 +101,34 @@ def get_scheduled_jobs_info():
         "state": rec_st,
     })
 
+    # 3. Truncate Logs Job
+    log_job = scheduler.get_job("plex_log_cleanup_job") if scheduler.running else None
+    next_log = log_job.next_run_time.isoformat() if log_job and log_job.next_run_time else None
+    log_st = job_manager.get_job_state("truncate_logs")
+    jobs_info.append({
+        "id": "truncate_logs",
+        "name": JOB_DEFINITIONS["truncate_logs"]["name"],
+        "description": JOB_DEFINITIONS["truncate_logs"]["description"],
+        "interval_hours": 24,
+        "next_run": next_log,
+        "state": log_st,
+    })
+
     return jobs_info
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+
+    # Attach SQLiteLogHandler to persist logs with 7-day retention
+    sql_handler = SQLiteLogHandler()
+    sql_handler.setLevel(logging.INFO)
+    sql_handler.setFormatter(logging.Formatter("%(message)s"))
+    pkg_logger = logging.getLogger("plex_recommender")
+    if not any(isinstance(h, SQLiteLogHandler) for h in pkg_logger.handlers):
+        pkg_logger.addHandler(sql_handler)
+
     if not scheduler.running:
         scheduler.add_job(
             scheduled_sync_job,
@@ -111,9 +144,16 @@ async def lifespan(app: FastAPI):
             id="plex_recommendations_job",
             replace_existing=True
         )
+        scheduler.add_job(
+            scheduled_log_cleanup_job,
+            "interval",
+            hours=24,
+            id="plex_log_cleanup_job",
+            replace_existing=True
+        )
         scheduler.start()
         logger.info(
-            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h)."
+            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h, log truncation every 24h)."
         )
     yield
     if scheduler.running:
@@ -384,6 +424,50 @@ def api_clear_recommendations_cache(request: Request):
     clear_recommendations_cache()
     return {"success": True, "message": "Recommendations cache cleared"}
 
+
+@app.post("/api/recommendations/dismiss")
+def api_dismiss_recommendation(
+    request: Request,
+    tmdb_id: str = Form(...),
+    media_type: str = Form("movie"),
+    title: str = Form(""),
+    year: Optional[int] = Form(None),
+    reason: str = Form("not_interested"),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    dismiss_item(
+        user_key=user["user_key"],
+        tmdb_id=tmdb_id,
+        media_type=media_type,
+        title=title,
+        year=year,
+        reason=reason
+    )
+    return JSONResponse({"success": True, "tmdb_id": tmdb_id, "reason": reason})
+
+
+@app.post("/api/recommendations/undismiss")
+def api_undismiss_recommendation(
+    request: Request,
+    tmdb_id: str = Form(...)
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    undismiss_item(user_key=user["user_key"], tmdb_id=tmdb_id)
+    return JSONResponse({"success": True, "tmdb_id": tmdb_id})
+
+
+@app.get("/api/recommendations/dismissed")
+def api_get_dismissed_recommendations(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    dismissals = get_user_dismissals(user["user_key"])
+    return JSONResponse({"success": True, "dismissals": dismissals})
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     user = get_current_user(request)
@@ -538,6 +622,8 @@ def api_run_job(
         background_tasks.add_task(job_manager.run_sync, trigger="manual", user_key=user_key)
     elif job_type == "recommendations":
         background_tasks.add_task(job_manager.run_recommendations, trigger="manual", user_key=user_key)
+    elif job_type == "truncate_logs":
+        background_tasks.add_task(job_manager.run_truncate_logs, trigger="manual", retention_days=7)
 
     return JSONResponse({"status": "started", "job_type": job_type})
 
@@ -587,6 +673,48 @@ def api_clear_user_data(request: Request, user_key: str = Form(...)):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     clear_user_data(user_key)
     return RedirectResponse(url="/settings/system?cleared=1", status_code=303)
+
+
+@app.get("/settings/logs", response_class=HTMLResponse)
+def logs_page(request: Request, level: Optional[str] = None, q: Optional[str] = None):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login?next=/settings/logs", status_code=303)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Administrator access required.")
+    logs = get_system_logs(limit=250, level=level, search=q)
+    return templates.TemplateResponse(
+        request=request,
+        name="logs.html",
+        context={
+            "settings": settings,
+            "logs": logs,
+            "selected_level": (level or "ALL").upper(),
+            "search_query": q or "",
+            "sync_state": sync_state,
+            "current_user": user,
+            "recs_ready": recommendations_ready(user),
+            "low_bandwidth": is_low_bandwidth(request),
+        }
+    )
+
+
+@app.post("/api/logs/truncate")
+def api_truncate_logs(request: Request, days: int = Form(7)):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    count = truncate_system_logs(days=days)
+    return RedirectResponse(url=f"/settings/logs?truncated={count}", status_code=303)
+
+
+@app.post("/api/logs/clear")
+def api_clear_logs(request: Request):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    clear_all_system_logs()
+    return RedirectResponse(url="/settings/logs?cleared=1", status_code=303)
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
@@ -714,8 +842,9 @@ def request_overseerr(
     is_4k: bool = Form(False),
     seasons: Optional[str] = Form(None)
 ):
-    """Trigger a media request (defaults to Season 1 for TV shows)."""
-    if not get_current_user(request):
+    """Trigger a media request (defaults to Season 1 for TV shows), attributed to current user."""
+    user = get_current_user(request)
+    if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     parsed_seasons = None
     if seasons:
@@ -729,13 +858,20 @@ def request_overseerr(
     elif media_type in ("show", "tv"):
         parsed_seasons = [1]
 
+    overseerr_user_id = overseerr.resolve_user_id(
+        plex_user_key=user.get("user_key"),
+        email=user.get("email"),
+        username=user.get("username")
+    )
+
     success, message = overseerr.request_media(
         tmdb_id=tmdb_id,
         media_type=media_type,
         is_4k=is_4k,
-        seasons=parsed_seasons
+        seasons=parsed_seasons,
+        user_id=overseerr_user_id
     )
-    return JSONResponse({"success": success, "message": message})
+    return JSONResponse({"success": success, "message": message, "overseerr_user_id": overseerr_user_id})
 
 @app.get("/api/overseerr/test")
 def test_overseerr_route(request: Request):

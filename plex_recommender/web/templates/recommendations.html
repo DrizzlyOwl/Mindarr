@@ -49,9 +49,22 @@
                     <option value="da" {% if selected_language == 'da' %}selected{% endif %}>Danish (DA)</option>
                     <option value="sv" {% if selected_language == 'sv' %}selected{% endif %}>Swedish (SV)</option>
                     <option value="no" {% if selected_language == 'no' %}selected{% endif %}>Norwegian (NO)</option>
+                    <option value="nl" {% if selected_language == 'nl' %}selected{% endif %}>Dutch (NL)</option>
                     <option value="zh" {% if selected_language == 'zh' %}selected{% endif %}>Chinese (ZH)</option>
+                    <option value="pt" {% if selected_language == 'pt' %}selected{% endif %}>Portuguese (PT)</option>
                     <option value="hi" {% if selected_language == 'hi' %}selected{% endif %}>Hindi (HI)</option>
+                    <option value="ru" {% if selected_language == 'ru' %}selected{% endif %}>Russian (RU)</option>
+                    <option value="pl" {% if selected_language == 'pl' %}selected{% endif %}>Polish (PL)</option>
                 </select>
+
+                <!-- Hidden Titles Modal Trigger -->
+                <button type="button" onclick="openHiddenModal()" class="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition" title="View titles you have dismissed or hidden">
+                    <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd" />
+                        <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                    </svg>
+                    <span>Hidden Titles</span>
+                </button>
 
                 <!-- Min Rating -->
                 <select name="min_rating" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
@@ -458,5 +471,139 @@
             btn.innerHTML = originalHtml;
         }
     }
+
+    async function dismissRecommendation(tmdbId, mediaType, title, year, reason, btn) {
+        const card = document.getElementById(`card-${tmdbId}`);
+        if (card) {
+            card.classList.add('opacity-40', 'pointer-events-none');
+        }
+
+        const form = new FormData();
+        form.append('tmdb_id', tmdbId);
+        form.append('media_type', mediaType);
+        form.append('title', title || '');
+        if (year) form.append('year', year);
+        form.append('reason', reason);
+
+        try {
+            const res = await fetch('/api/recommendations/dismiss', {
+                method: 'POST',
+                body: form
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (card) {
+                    card.classList.add('scale-95', 'opacity-0');
+                    setTimeout(() => card.remove(), 300);
+                }
+            } else {
+                if (card) card.classList.remove('opacity-40', 'pointer-events-none');
+                alert(data.error || 'Failed to dismiss title.');
+            }
+        } catch (e) {
+            if (card) card.classList.remove('opacity-40', 'pointer-events-none');
+            alert('Error dismissing title: ' + e);
+        }
+    }
+
+    async function openHiddenModal() {
+        const modal = document.getElementById('hidden-modal');
+        const body = document.getElementById('hidden-modal-body');
+        modal.classList.remove('hidden');
+        body.innerHTML = '<div class="text-xs text-slate-400 text-center py-6">Loading hidden titles...</div>';
+
+        try {
+            const res = await fetch('/api/recommendations/dismissed');
+            const data = await res.json();
+            if (!data.dismissals || data.dismissals.length === 0) {
+                body.innerHTML = '<div class="text-xs text-slate-400 text-center py-8">No hidden or dismissed titles.</div>';
+                return;
+            }
+
+            let html = '';
+            for (const d of data.dismissals) {
+                const badge = d.reason === 'already_watched'
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Seen outside Plex</span>'
+                    : '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">Not interested</span>';
+
+                html += `
+                <div class="py-3 flex items-center justify-between gap-3" id="dismissed-row-${d.tmdb_id}">
+                    <div class="space-y-0.5 min-w-0 flex-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm font-semibold text-white truncate">${d.title || ('TMDb ' + d.tmdb_id)}</span>
+                            ${d.year ? `<span class="text-xs text-slate-400">(${d.year})</span>` : ''}
+                            <span class="uppercase text-[9px] px-1 rounded bg-slate-800 text-slate-400">${d.media_type}</span>
+                        </div>
+                        <div>${badge}</div>
+                    </div>
+                    <button type="button" onclick="undismissRecommendation('${d.tmdb_id}', this)" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">
+                        Unhide
+                    </button>
+                </div>
+                `;
+            }
+            body.innerHTML = html;
+        } catch (e) {
+            body.innerHTML = `<div class="text-xs text-rose-400 text-center py-6">Failed to load hidden titles: ${e}</div>`;
+        }
+    }
+
+    function closeHiddenModal() {
+        document.getElementById('hidden-modal').classList.add('hidden');
+    }
+
+    async function undismissRecommendation(tmdbId, btn) {
+        btn.disabled = true;
+        btn.textContent = 'Restoring...';
+
+        const form = new FormData();
+        form.append('tmdb_id', tmdbId);
+
+        try {
+            const res = await fetch('/api/recommendations/undismiss', {
+                method: 'POST',
+                body: form
+            });
+            const data = await res.json();
+            if (data.success) {
+                const row = document.getElementById(`dismissed-row-${tmdbId}`);
+                if (row) {
+                    row.classList.add('opacity-40');
+                    btn.textContent = 'Restored';
+                    btn.className = 'shrink-0 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold';
+                }
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Unhide';
+                alert(data.error || 'Failed to unhide title.');
+            }
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = 'Unhide';
+            alert('Error unhiding title: ' + e);
+        }
+    }
 </script>
+
+<!-- Hidden Titles Modal -->
+<div id="hidden-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-white">Hidden &amp; Excluded Titles</h3>
+                <p class="text-xs text-slate-400">Titles you marked as watched outside Plex or dismissed as not interested.</p>
+            </div>
+            <button type="button" onclick="closeHiddenModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+            </button>
+        </div>
+        <div id="hidden-modal-body" class="p-6 overflow-y-auto divide-y divide-slate-800/60 flex-1">
+            <div class="text-xs text-slate-400 text-center py-6">Loading hidden titles...</div>
+        </div>
+        <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/40 flex justify-between items-center">
+            <span class="text-[11px] text-slate-400">Unhiding a title returns it to recommendation pools.</span>
+            <button type="button" onclick="closeHiddenModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white transition">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}

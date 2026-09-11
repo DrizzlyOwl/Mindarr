@@ -154,3 +154,20 @@ def test_job_manager_concurrency_blocks_duplicate_job():
     assert res["status"] == "already_running"
     assert jm.is_running("recommendations") is True
 
+
+def test_job_manager_truncate_logs(monkeypatch):
+    from plex_recommender.jobs import JobManager, JOB_DEFINITIONS
+    assert "truncate_logs" in JOB_DEFINITIONS
+
+    jm = JobManager()
+    res = jm.run_truncate_logs(trigger="manual", retention_days=7)
+    assert res["success"] is True
+    assert "deleted_count" in res
+
+    history = get_job_history()
+    log_jobs = [j for j in history if j["job_type"] == "truncate_logs"]
+    assert len(log_jobs) == 1
+    assert log_jobs[0]["status"] == "success"
+    assert "older than 7 days" in log_jobs[0]["detail"]
+
+

@@ -226,6 +226,53 @@ def test_settings_page_marks_env_locked_fields(monkeypatch):
         assert "managed by environment variables" in resp.text
 
 
+def test_os_env_vars_survive_reload_with_conflicting_env_file(tmp_path, monkeypatch):
+    from plex_recommender import config as cfg
+    env_file = tmp_path / ".env"
+    env_file.write_text("TMDB_API_KEY=stale_key_from_file\nPLEX_URL=https://stale:32400\n")
+
+    monkeypatch.setattr(cfg, "ENV_FILE", env_file)
+    monkeypatch.setattr(cfg, "ENV_MANAGED_KEYS", frozenset({"TMDB_API_KEY", "PLEX_URL"}))
+    monkeypatch.setattr(cfg, "OS_ENV_SNAPSHOT", {
+        "TMDB_API_KEY": "docker_injected_tmdb_key",
+        "PLEX_URL": "https://docker-plex:32400",
+    })
+
+    import os
+    os.environ["TMDB_API_KEY"] = "docker_injected_tmdb_key"
+    os.environ["PLEX_URL"] = "https://docker-plex:32400"
+
+    cfg.settings.reload()
+
+    assert cfg.settings.tmdb_api_key == "docker_injected_tmdb_key"
+    assert cfg.settings.plex_url == "https://docker-plex:32400"
+    assert os.environ["TMDB_API_KEY"] == "docker_injected_tmdb_key"
+    assert os.environ["PLEX_URL"] == "https://docker-plex:32400"
+
+
+def test_settings_page_displays_os_env_values(monkeypatch):
+    from plex_recommender import config as cfg
+    from plex_recommender.web import app as webapp
+
+    monkeypatch.setattr(cfg, "ENV_MANAGED_KEYS", frozenset({"TMDB_API_KEY", "PLEX_URL"}))
+    monkeypatch.setattr(cfg.settings, "tmdb_api_key", "docker_key_value")
+    monkeypatch.setattr(cfg.settings, "plex_url", "https://docker-plex:32400")
+    monkeypatch.setattr(webapp.settings, "tmdb_api_key", "docker_key_value")
+    monkeypatch.setattr(webapp.settings, "plex_url", "https://docker-plex:32400")
+    monkeypatch.setattr(webapp.overseerr, "test_connection", lambda: (False, "n/a"))
+    monkeypatch.setattr(webapp.tautulli, "test_connection", lambda: (False, "n/a"))
+    monkeypatch.setattr(webapp.settings, "plex_token", None)
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        assert "value=\"https://docker-plex:32400\"" in resp.text
+        assert "value=\"docker_key_value\"" in resp.text
+        assert "Managed by env var TMDB_API_KEY" in resp.text
+        assert "Managed by env var PLEX_URL" in resp.text
+
+
 def test_system_page_requires_admin():
     with TestClient(app) as client:
         resp = client.get("/settings/system", follow_redirects=False)
@@ -694,6 +741,107 @@ def test_settings_saves_automation_schedules():
         assert resp.status_code == 303
         assert settings.auto_sync_hours == 12
         assert settings.auto_recommendations_hours == 6
+
+
+def test_header_displays_version_instead_of_truenas():
+    from plex_recommender import __version__
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert f"v{__version__}" in resp.text
+        assert "TrueNAS Edition" not in resp.text
+
+
+def test_api_overseerr_request_resolves_user_id(monkeypatch):
+    from plex_recommender.web import app as webapp
+    from unittest.mock import MagicMock
+
+    mock_overseerr = MagicMock()
+    mock_overseerr.resolve_user_id.return_value = 42
+    mock_overseerr.request_media.return_value = (True, "Request submitted!")
+    monkeypatch.setattr(webapp, "overseerr", mock_overseerr)
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.post("/api/overseerr/request", data={"tmdb_id": "12345", "media_type": "movie"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["overseerr_user_id"] == 42
+        mock_overseerr.resolve_user_id.assert_called_once_with(plex_user_key=USER, email="a@x.com", username="alice")
+        mock_overseerr.request_media.assert_called_once_with(tmdb_id=12345, media_type="movie", is_4k=False, seasons=None, user_id=42)
+
+
+def test_api_recommendations_dismiss_and_undismiss():
+    from plex_recommender.db import get_user_dismissals
+    with TestClient(app) as client:
+        _login(client)
+
+        # 1. Dismiss title
+        resp = client.post(
+            "/api/recommendations/dismiss",
+            data={
+                "tmdb_id": "9876",
+                "media_type": "movie",
+                "title": "Hidden Gem",
+                "year": "2022",
+                "reason": "already_watched",
+            }
+        )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+        # 2. Verify in dismissed list
+        list_resp = client.get("/api/recommendations/dismissed")
+        assert list_resp.status_code == 200
+        items = list_resp.json()["dismissals"]
+        assert len(items) == 1
+        assert items[0]["tmdb_id"] == "9876"
+        assert items[0]["reason"] == "already_watched"
+
+        # 3. Undismiss title
+        un_resp = client.post("/api/recommendations/undismiss", data={"tmdb_id": "9876"})
+        assert un_resp.status_code == 200
+        assert un_resp.json()["success"] is True
+
+        # 4. Verify list empty
+        assert len(get_user_dismissals(USER)) == 0
+
+
+def test_settings_logs_page_and_actions():
+    from plex_recommender.db import insert_system_log, get_system_logs
+    import time
+
+    now = time.time()
+    insert_system_log(level="ERROR", logger_name="test.err", message="Critical error occurred", epoch=now)
+    insert_system_log(level="INFO", logger_name="test.info", message="Regular info log", epoch=now - 100)
+
+    with TestClient(app) as client:
+        _login(client)
+
+        # View logs page
+        resp = client.get("/settings/logs")
+        assert resp.status_code == 200
+        assert "System Logs" in resp.text
+        assert "Critical error occurred" in resp.text
+        assert "Regular info log" in resp.text
+
+        # Filter by level
+        err_resp = client.get("/settings/logs?level=ERROR")
+        assert err_resp.status_code == 200
+        assert "Critical error occurred" in err_resp.text
+        assert "Regular info log" not in err_resp.text
+
+        # Truncate logs
+        trunc_resp = client.post("/api/logs/truncate", data={"days": "7"}, follow_redirects=True)
+        assert trunc_resp.status_code == 200
+
+        # Clear logs
+        clear_resp = client.post("/api/logs/clear", follow_redirects=True)
+        assert clear_resp.status_code == 200
+        assert len(get_system_logs()) == 0
+
 
 
 
