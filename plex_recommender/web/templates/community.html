@@ -88,6 +88,444 @@
         </div>
     </div>
 
+    <!-- Server Leaderboard & Gamification Section -->
+    {% if community.leaderboard %}
+    <div class="space-y-6">
+        <!-- Section Header -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+                <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+                    <span>Server Leaderboard</span>
+                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30 font-semibold">
+                        🏆 Top Watchers
+                    </span>
+                </h2>
+                <p class="text-xs text-slate-400 mt-0.5">Rankings, watch milestones, and achievement badges across your Plex server community.</p>
+            </div>
+            {% if community.user_comparison %}
+            <div class="flex items-center space-x-2">
+                <span class="text-xs px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-medium">
+                    Your Rank: <strong class="text-amber-400">#{{ community.user_comparison.user_rank }}</strong> of {{ community.user_comparison.total_watchers }}
+                </span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Privacy & Anonymization Annotation -->
+        <details class="group bg-slate-950/60 border border-slate-800/80 rounded-xl px-4 py-3 transition hover:border-slate-700">
+            <summary class="flex items-center justify-between cursor-pointer list-none text-xs font-semibold text-slate-400 hover:text-slate-200 transition select-none">
+                <span class="inline-flex items-center space-x-2">
+                    <svg class="w-3.5 h-3.5 fill-current text-cyan-400 transition-transform group-open:rotate-90 shrink-0" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M7.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L10.586 10 7.293 6.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                    </svg>
+                    <span class="text-slate-300">Why are other usernames anonymized?</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-mono">Faker Pseudonyms Active</span>
+                </span>
+                <span class="text-[11px] text-slate-500 group-open:hidden">Learn more &darr;</span>
+                <span class="text-[11px] text-slate-500 hidden group-open:inline">Collapse &uarr;</span>
+            </summary>
+            <div class="mt-3 pt-3 border-t border-slate-800/80 text-xs text-slate-400 space-y-2 leading-relaxed">
+                <p>
+                    To protect personal viewing privacy across household members and shared Plex users, all peer viewer names on this leaderboard are deterministically generated pseudonyms powered by <strong class="text-slate-200 font-semibold">Faker</strong>.
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
+                        <div class="text-[11px] font-semibold text-amber-400 flex items-center space-x-1.5">
+                            <span>👤 Your Identity</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-1">
+                            You always see your authentic Plex display name, real avatar, and personal stats with the <span class="text-amber-400 font-bold">YOU</span> badge.
+                        </p>
+                    </div>
+                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
+                        <div class="text-[11px] font-semibold text-cyan-400 flex items-center space-x-1.5">
+                            <span>🔒 Authentic Server Stats</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-1">
+                            All stream counts, playback hours, XP levels, rankings, and badges are 100% genuine server metrics. Only identities are masked.
+                        </p>
+                    </div>
+                </div>
+                {% if current_user and current_user.is_admin %}
+                <div class="mt-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400 flex items-center space-x-1.5">
+                    <span class="text-amber-400 font-bold">Admin View:</span>
+                    <span>Because you are the server administrator, real Plex usernames are revealed in tooltips next to the fake names.</span>
+                </div>
+                {% endif %}
+            </div>
+        </details>
+
+        <!-- Head-to-Head Comparison & Level Card -->
+        {% if community.user_comparison %}
+        <div class="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <!-- Left: User Status & Level -->
+                <div class="flex items-start sm:items-center space-x-4">
+                    <div class="relative shrink-0">
+                        {% if community.user_comparison.current_user.thumb %}
+                        <img src="{{ community.user_comparison.current_user.thumb }}" alt="" class="w-16 h-16 rounded-2xl border-2 border-amber-500/50 object-cover shadow-lg">
+                        {% else %}
+                        <div class="w-16 h-16 rounded-2xl bg-amber-500/20 border-2 border-amber-500/50 text-amber-400 font-extrabold text-2xl flex items-center justify-center shadow-lg">
+                            {{ (community.user_comparison.current_user.display_name or community.user_comparison.current_user.username)[:1]|upper }}
+                        </div>
+                        {% endif %}
+                        <span class="absolute -bottom-1 -right-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-md bg-amber-500 text-slate-950 shadow">
+                            #{{ community.user_comparison.user_rank }}
+                        </span>
+                    </div>
+
+                    <div class="space-y-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-lg font-bold text-white">{{ community.user_comparison.current_user.display_name or community.user_comparison.current_user.username }}</h3>
+                            <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                {{ community.user_comparison.current_user.gamification.title }}
+                            </span>
+                            <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                Level {{ community.user_comparison.current_user.gamification.level }}
+                            </span>
+                        </div>
+                        <p class="text-xs text-amber-400/90 font-medium">
+                            {{ community.user_comparison.rank_message }}
+                        </p>
+                        <!-- XP Progress Bar -->
+                        <div class="pt-1.5 w-full max-w-md">
+                            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                                <span class="font-mono text-cyan-400">{{ community.user_comparison.current_user.gamification.xp }} XP</span>
+                                <span>{{ community.user_comparison.current_user.gamification.progress_pct }}% to Level {{ community.user_comparison.current_user.gamification.level + 1 }}</span>
+                            </div>
+                            <div class="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden border border-slate-700/60">
+                                <div class="bg-gradient-to-r from-amber-500 to-cyan-400 h-2 rounded-full transition-all duration-500" style="width: {{ community.user_comparison.current_user.gamification.progress_pct }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Head-to-Head Comparison Metrics -->
+                <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 lg:w-96 shrink-0 space-y-3">
+                    <div class="flex items-center justify-between text-xs text-slate-400 font-semibold uppercase tracking-wider pb-1 border-b border-slate-800/60">
+                        <span>You vs Server Leader</span>
+                        <span class="text-amber-400 font-normal normal-case inline-flex items-center space-x-1" {% if current_user and current_user.is_admin and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}title="Real username: @{{ community.user_comparison.leader.real_username }}"{% endif %}>
+                            <span>{{ community.user_comparison.leader.display_name or community.user_comparison.leader.username }}</span>
+                            {% if current_user and current_user.is_admin and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}
+                            <span class="cursor-help text-slate-400 hover:text-amber-300" title="Real username: @{{ community.user_comparison.leader.real_username }}">
+                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                            </span>
+                            {% endif %}
+                        </span>
+                    </div>
+
+                    <!-- Plays Comparison Bar -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-400">Total Plays</span>
+                            <span class="font-mono text-white">
+                                <strong class="text-amber-400">{{ community.user_comparison.current_user.total_plays }}</strong> / {{ community.user_comparison.leader.total_plays }}
+                            </span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-amber-400 h-1.5 rounded-full" style="width: {{ community.user_comparison.plays_pct_of_leader }}%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Hours Comparison Bar -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-400">Hours Streamed</span>
+                            <span class="font-mono text-white">
+                                <strong class="text-cyan-400">{{ community.user_comparison.current_user.total_hours }}h</strong> / {{ community.user_comparison.leader.total_hours }}h
+                            </span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-cyan-400 h-1.5 rounded-full" style="width: {{ community.user_comparison.hours_pct_of_leader }}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-1 text-[11px] text-slate-500 font-mono">
+                        {% if community.user_comparison.is_leader %}
+                        <span class="text-emerald-400">&bull; Currently Leading Server</span>
+                        <span>{{ community.user_comparison.percentile }}th Percentile</span>
+                        {% else %}
+                        <span>Behind Leader: {{ community.user_comparison.plays_behind }} plays ({{ community.user_comparison.hours_behind }}h)</span>
+                        <span>Top {{ community.user_comparison.percentile }}%</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Badges & Trophy Showcase -->
+            <div class="pt-4 border-t border-slate-800/80">
+                <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center space-x-2">
+                    <span>Your Trophy Case</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                        {{ community.user_comparison.unlocked_badges|length }} Unlocked
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
+                    {% for b in community.user_comparison.unlocked_badges %}
+                    <div class="bg-slate-950/70 border border-amber-500/30 rounded-xl p-2.5 flex flex-col items-center text-center shadow group hover:border-amber-400 transition" title="{{ b.desc }}">
+                        <span class="text-2xl filter drop-shadow">{{ b.icon }}</span>
+                        <span class="text-[11px] font-bold text-white mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
+                        <span class="text-[9px] text-emerald-400 font-medium">Unlocked</span>
+                    </div>
+                    {% endfor %}
+                    {% for b in community.user_comparison.locked_badges %}
+                    <div class="bg-slate-950/40 border border-slate-800/70 rounded-xl p-2.5 flex flex-col items-center text-center opacity-40 hover:opacity-75 transition group" title="{{ b.hint }}">
+                        <span class="text-2xl filter grayscale">{{ b.icon }}</span>
+                        <span class="text-[11px] font-medium text-slate-400 mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
+                        <span class="text-[9px] text-slate-500">Locked</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Top 3 Podium (when >= 2 users) -->
+        {% if community.leaderboard|length >= 2 %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+            <!-- 2nd Place (Silver) -->
+            {% if community.podium.second %}
+            <div class="order-2 md:order-1 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-5 shadow-xl flex flex-col items-center text-center relative overflow-hidden">
+                <div class="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-slate-400 to-transparent"></div>
+                <span class="w-8 h-8 rounded-full bg-slate-800 border border-slate-600 text-slate-300 font-black text-sm flex items-center justify-center mb-3 shadow">
+                    🥈
+                </span>
+                <div class="relative">
+                    {% if community.podium.second.thumb %}
+                    <img src="{{ community.podium.second.thumb }}" alt="" class="w-16 h-16 rounded-full border-2 border-slate-400 object-cover shadow-md">
+                    {% else %}
+                    <div class="w-16 h-16 rounded-full bg-slate-800 border-2 border-slate-400 text-slate-200 font-bold text-xl flex items-center justify-center shadow-md">
+                        {{ (community.podium.second.display_name or community.podium.second.username)[:1]|upper }}
+                    </div>
+                    {% endif %}
+                    {% if community.podium.second.is_me %}
+                    <span class="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-slate-950">YOU</span>
+                    {% endif %}
+                </div>
+                <div class="flex items-center space-x-1.5 mt-3">
+                    <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and community.podium.second.real_username and not community.podium.second.is_me %}title="Real username: @{{ community.podium.second.real_username }}"{% endif %}>{{ community.podium.second.display_name or community.podium.second.username }}</h4>
+                    {% if current_user and current_user.is_admin and community.podium.second.real_username and not community.podium.second.is_me %}
+                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.second.real_username }}">
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </span>
+                    {% endif %}
+                </div>
+                <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.second.gamification.title }}</span>
+                <div class="mt-3 flex items-center space-x-3 text-xs">
+                    <span class="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-mono">
+                        {{ community.podium.second.total_plays }} plays
+                    </span>
+                    <span class="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-cyan-400 font-mono">
+                        {{ community.podium.second.total_hours }}h
+                    </span>
+                </div>
+                <div class="mt-2 text-[11px] text-slate-500 font-mono">Level {{ community.podium.second.gamification.level }} &bull; {{ community.podium.second.gamification.xp }} XP</div>
+            </div>
+            {% endif %}
+
+            <!-- 1st Place (Gold / Champion) -->
+            {% if community.podium.first %}
+            <div class="order-1 md:order-2 bg-gradient-to-b from-amber-500/10 via-slate-900 to-slate-900 border-2 border-amber-500/60 rounded-2xl p-6 shadow-2xl flex flex-col items-center text-center relative overflow-hidden transform md:-translate-y-2">
+                <div class="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600"></div>
+                <span class="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black text-lg flex items-center justify-center mb-3 shadow-lg">
+                    👑
+                </span>
+                <div class="relative">
+                    {% if community.podium.first.thumb %}
+                    <img src="{{ community.podium.first.thumb }}" alt="" class="w-20 h-20 rounded-full border-2 border-amber-400 object-cover shadow-xl ring-4 ring-amber-500/20">
+                    {% else %}
+                    <div class="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-300 font-black text-2xl flex items-center justify-center shadow-xl ring-4 ring-amber-500/20">
+                        {{ (community.podium.first.display_name or community.podium.first.username)[:1]|upper }}
+                    </div>
+                    {% endif %}
+                    {% if community.podium.first.is_me %}
+                    <span class="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 shadow">YOU</span>
+                    {% endif %}
+                </div>
+                <div class="flex items-center space-x-1.5 mt-3">
+                    <h4 class="font-extrabold text-white text-lg" {% if current_user and current_user.is_admin and community.podium.first.real_username and not community.podium.first.is_me %}title="Real username: @{{ community.podium.first.real_username }}"{% endif %}>{{ community.podium.first.display_name or community.podium.first.username }}</h4>
+                    {% if current_user and current_user.is_admin and community.podium.first.real_username and not community.podium.first.is_me %}
+                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.first.real_username }}">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </span>
+                    {% endif %}
+                </div>
+                <span class="text-xs text-amber-400 font-semibold">{{ community.podium.first.gamification.title }}</span>
+                <div class="mt-3 flex items-center space-x-3 text-xs">
+                    <span class="px-3 py-1 rounded-lg bg-slate-950 border border-amber-500/30 text-white font-mono font-bold">
+                        {{ community.podium.first.total_plays }} plays
+                    </span>
+                    <span class="px-3 py-1 rounded-lg bg-slate-950 border border-cyan-500/30 text-cyan-400 font-mono font-bold">
+                        {{ community.podium.first.total_hours }}h
+                    </span>
+                </div>
+                <div class="mt-2 text-xs text-amber-400/80 font-mono font-semibold">Level {{ community.podium.first.gamification.level }} &bull; {{ community.podium.first.gamification.xp }} XP</div>
+            </div>
+            {% endif %}
+
+            <!-- 3rd Place (Bronze) -->
+            {% if community.podium.third %}
+            <div class="order-3 bg-slate-900/90 border border-amber-800/40 rounded-2xl p-5 shadow-xl flex flex-col items-center text-center relative overflow-hidden">
+                <div class="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-amber-700 to-transparent"></div>
+                <span class="w-8 h-8 rounded-full bg-slate-800 border border-amber-800 text-amber-600 font-black text-sm flex items-center justify-center mb-3 shadow">
+                    🥉
+                </span>
+                <div class="relative">
+                    {% if community.podium.third.thumb %}
+                    <img src="{{ community.podium.third.thumb }}" alt="" class="w-16 h-16 rounded-full border-2 border-amber-700 object-cover shadow-md">
+                    {% else %}
+                    <div class="w-16 h-16 rounded-full bg-slate-800 border-2 border-amber-700 text-amber-500 font-bold text-xl flex items-center justify-center shadow-md">
+                        {{ (community.podium.third.display_name or community.podium.third.username)[:1]|upper }}
+                    </div>
+                    {% endif %}
+                    {% if community.podium.third.is_me %}
+                    <span class="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-slate-950">YOU</span>
+                    {% endif %}
+                </div>
+                <div class="flex items-center space-x-1.5 mt-3">
+                    <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and community.podium.third.real_username and not community.podium.third.is_me %}title="Real username: @{{ community.podium.third.real_username }}"{% endif %}>{{ community.podium.third.display_name or community.podium.third.username }}</h4>
+                    {% if current_user and current_user.is_admin and community.podium.third.real_username and not community.podium.third.is_me %}
+                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.third.real_username }}">
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </span>
+                    {% endif %}
+                </div>
+                <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.third.gamification.title }}</span>
+                <div class="mt-3 flex items-center space-x-3 text-xs">
+                    <span class="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-white font-mono">
+                        {{ community.podium.third.total_plays }} plays
+                    </span>
+                    <span class="px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-cyan-400 font-mono">
+                        {{ community.podium.third.total_hours }}h
+                    </span>
+                </div>
+                <div class="mt-2 text-[11px] text-slate-500 font-mono">Level {{ community.podium.third.gamification.level }} &bull; {{ community.podium.third.gamification.xp }} XP</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Full Leaderboard Table -->
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center space-x-2">
+                        <span>Server Standings</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Ranked by overall Watcher XP, stream count, and viewing hours</p>
+                </div>
+                <span class="text-xs text-slate-500 font-mono">{{ community.leaderboard|length }} Watcher{% if community.leaderboard|length != 1 %}s{% endif %}</span>
+            </div>
+
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-sm text-left">
+                    <thead>
+                        <tr class="text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-800 bg-slate-950/40">
+                            <th class="px-4 py-3 font-semibold text-center w-16">Rank</th>
+                            <th class="px-5 py-3 font-semibold">Watcher</th>
+                            <th class="px-4 py-3 font-semibold">Tier &amp; Level</th>
+                            <th class="px-4 py-3 font-semibold text-center">Watch Time</th>
+                            <th class="px-4 py-3 font-semibold text-center">Plays</th>
+                            <th class="px-4 py-3 font-semibold">Top Flavor</th>
+                            <th class="px-5 py-3 font-semibold text-right">Badges</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        {% for user_row in community.leaderboard %}
+                        <tr class="transition {% if user_row.is_me %}bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-amber-500{% else %}hover:bg-slate-800/30{% endif %}">
+                            <!-- Rank -->
+                            <td class="px-4 py-3.5 text-center font-bold text-sm whitespace-nowrap">
+                                {% if user_row.rank == 1 %}
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">🥇</span>
+                                {% elif user_row.rank == 2 %}
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-700/40 text-slate-300 font-bold border border-slate-600">🥈</span>
+                                {% elif user_row.rank == 3 %}
+                                <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-900/30 text-amber-600 font-bold border border-amber-800">🥉</span>
+                                {% else %}
+                                <span class="font-mono text-slate-400">#{{ user_row.rank }}</span>
+                                {% endif %}
+                            </td>
+
+                            <!-- Watcher Profile -->
+                            <td class="px-5 py-3.5">
+                                <div class="flex items-center space-x-3">
+                                    <div class="relative shrink-0">
+                                        {% if user_row.thumb %}
+                                        <img src="{{ user_row.thumb }}" alt="" class="w-8 h-8 rounded-full border {% if user_row.is_me %}border-amber-400{% else %}border-slate-700{% endif %} object-cover">
+                                        {% else %}
+                                        <div class="w-8 h-8 rounded-full {% if user_row.is_me %}bg-amber-500/20 border border-amber-400 text-amber-300{% else %}bg-slate-800 border border-slate-700 text-slate-300{% endif %} text-xs font-bold flex items-center justify-center">
+                                            {{ (user_row.display_name or user_row.username)[:1]|upper }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="flex items-center space-x-2">
+                                            <span class="font-bold text-white truncate max-w-[150px] sm:max-w-xs" {% if current_user and current_user.is_admin and user_row.real_username and not user_row.is_me %}title="Real username: @{{ user_row.real_username }}"{% endif %}>{{ user_row.display_name or user_row.username }}</span>
+                                            {% if user_row.is_me %}
+                                            <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 uppercase tracking-wider">You</span>
+                                            {% endif %}
+                                            {% if current_user and current_user.is_admin and user_row.real_username and not user_row.is_me %}
+                                            <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ user_row.real_username }}">
+                                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="text-[11px] text-slate-400 truncate">{{ user_row.gamification.title }}</div>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- Tier & Level -->
+                            <td class="px-4 py-3.5 whitespace-nowrap">
+                                <div class="flex items-center space-x-2">
+                                    <span class="px-2 py-0.5 rounded text-xs font-mono font-bold bg-slate-800 text-cyan-300 border border-slate-700">
+                                        Lvl {{ user_row.gamification.level }}
+                                    </span>
+                                    <span class="text-[11px] font-mono text-slate-400">{{ user_row.gamification.xp }} XP</span>
+                                </div>
+                            </td>
+
+                            <!-- Watch Time -->
+                            <td class="px-4 py-3.5 text-center whitespace-nowrap font-mono text-xs">
+                                <span class="text-white font-semibold">{{ user_row.duration_formatted }}</span>
+                                <div class="text-[10px] text-slate-500">{{ user_row.total_hours }} hrs</div>
+                            </td>
+
+                            <!-- Plays -->
+                            <td class="px-4 py-3.5 text-center whitespace-nowrap font-mono text-xs">
+                                <span class="text-amber-400 font-semibold">{{ user_row.total_plays }}</span>
+                                <div class="text-[10px] text-slate-500">{{ user_row.movie_pct }}% M / {{ user_row.tv_pct }}% TV</div>
+                            </td>
+
+                            <!-- Top Flavor -->
+                            <td class="px-4 py-3.5 whitespace-nowrap">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-800/80 text-slate-300 border border-slate-700/60 font-medium">
+                                    {{ user_row.top_genre }}
+                                </span>
+                            </td>
+
+                            <!-- Badges -->
+                            <td class="px-5 py-3.5 text-right whitespace-nowrap">
+                                <div class="inline-flex items-center space-x-1">
+                                    {% for badge in user_row.gamification.badges[:4] %}
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" title="{{ badge.name }}: {{ badge.desc }}">
+                                        {{ badge.icon }}
+                                    </span>
+                                    {% endfor %}
+                                    {% if user_row.gamification.badges|length > 4 %}
+                                    <span class="text-[10px] text-slate-500 font-mono">+{{ user_row.gamification.badges|length - 4 }}</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Watched by Others, Unseen by You (Peer Recommendations) -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
