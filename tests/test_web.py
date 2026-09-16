@@ -932,5 +932,63 @@ def test_settings_logs_page_and_actions():
         assert len(get_system_logs()) == 0
 
 
+def test_api_recommendations_vote_and_unvote():
+    from plex_recommender.db import get_user_votes, get_user_dismissals, get_system_logs
+    with TestClient(app) as client:
+        _login(client)
+
+        # 1. Upvote (+1)
+        up_resp = client.post(
+            "/api/recommendations/vote",
+            data={
+                "tmdb_id": "8080",
+                "media_type": "movie",
+                "title": "Super Sci-Fi",
+                "year": "2023",
+                "vote": "1",
+            }
+        )
+        assert up_resp.status_code == 200
+        assert up_resp.json()["vote"] == 1
+        votes = get_user_votes(USER)
+        assert votes.get("8080") == 1
+
+        # Check audit log for upvote
+        logs = get_system_logs(search="upvoted recommendation")
+        assert len(logs) >= 1
+        assert "Super Sci-Fi" in logs[0]["message"]
+
+        # 2. Downvote (-1)
+        down_resp = client.post(
+            "/api/recommendations/vote",
+            data={
+                "tmdb_id": "9090",
+                "media_type": "show",
+                "title": "Bad Reality",
+                "year": "2024",
+                "vote": "-1",
+            }
+        )
+        assert down_resp.status_code == 200
+        assert down_resp.json()["vote"] == -1
+        votes = get_user_votes(USER)
+        assert votes.get("9090") == -1
+
+        # Check dismissed endpoint contains both dismissals and votes
+        d_resp = client.get("/api/recommendations/dismissed")
+        assert d_resp.status_code == 200
+        data = d_resp.json()
+        assert "dismissals" in data
+        assert "votes" in data
+        assert any(v["tmdb_id"] == "8080" for v in data["votes"])
+
+        # 3. Unvote
+        unvote_resp = client.post("/api/recommendations/unvote", data={"tmdb_id": "8080"})
+        assert unvote_resp.status_code == 200
+        votes_after = get_user_votes(USER)
+        assert "8080" not in votes_after
+
+
+
 
 

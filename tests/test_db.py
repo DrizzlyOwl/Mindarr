@@ -368,4 +368,69 @@ def test_system_logs_retention_and_truncation():
     assert len(get_system_logs()) == 0
 
 
+def test_user_votes_crud_and_migration():
+    from plex_recommender.db import (
+        record_vote,
+        remove_vote,
+        get_user_votes,
+        get_user_vote_items,
+        dismiss_item,
+        get_connection,
+        _migrate_hidden_cards_to_votes,
+        clear_user_data,
+        is_seen
+    )
+
+    uk = "vote_test_user"
+    clear_user_data(uk)
+
+    # 1. Upvote (+1)
+    record_vote(uk, tmdb_id="101", media_type="movie", title="Interstellar", year=2014, vote=1)
+    votes = get_user_votes(uk)
+    assert votes.get("101") == 1
+    items = get_user_vote_items(uk)
+    assert len(items) == 1
+    assert items[0]["title"] == "Interstellar"
+    assert items[0]["vote"] == 1
+
+    # 2. Downvote (-1)
+    record_vote(uk, tmdb_id="102", media_type="show", title="Terrible Show", year=2022, vote=-1)
+    votes = get_user_votes(uk)
+    assert votes.get("102") == -1
+    # Downvote also excludes in seen_identifiers
+    assert is_seen(uk, tmdb_id="102") is True
+
+    # 3. Filter by vote polarity
+    up_only = get_user_vote_items(uk, vote=1)
+    down_only = get_user_vote_items(uk, vote=-1)
+    assert len(up_only) == 1
+    assert up_only[0]["tmdb_id"] == "101"
+    assert len(down_only) == 1
+    assert down_only[0]["tmdb_id"] == "102"
+
+    # 4. Remove vote
+    remove_vote(uk, "102")
+    votes_after = get_user_votes(uk)
+    assert "102" not in votes_after
+    assert is_seen(uk, tmdb_id="102") is False
+
+    # 5. Test Option B migration from legacy 'not_interested' dismissals
+    dismiss_item(uk, tmdb_id="999", media_type="movie", title="Legacy Dismissed", year=2018, reason="not_interested")
+    conn = get_connection()
+    # Force delete from user_votes to simulate legacy database pre-migration
+    conn.execute("DELETE FROM user_votes WHERE user_key = ? AND tmdb_id = '999'", (uk,))
+    conn.commit()
+
+    _migrate_hidden_cards_to_votes(conn)
+    conn.close()
+
+    migrated_votes = get_user_votes(uk)
+    assert migrated_votes.get("999") == -1
+
+    # 6. Clear user data clears votes
+    res = clear_user_data(uk)
+    assert res.get("user_votes", 0) >= 1
+    assert len(get_user_votes(uk)) == 0
+
+
 

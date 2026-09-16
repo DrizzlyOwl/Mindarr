@@ -21,6 +21,7 @@ from plex_recommender.db import (
     get_database_stats, get_user_data_summary, clear_user_data,
     get_enriched_watch_events, get_watch_source_breakdown,
     dismiss_item, undismiss_item, get_user_dismissals,
+    record_vote, remove_vote, get_user_votes, get_user_vote_items,
     get_system_logs, truncate_system_logs, clear_all_system_logs,
 )
 from plex_recommender.auth import (
@@ -338,7 +339,8 @@ def recommendations_page(
             "recs_ready": True,
             "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
             "low_bandwidth": is_low_bandwidth(request),
-            "force_refresh": force_refresh
+            "force_refresh": force_refresh,
+            "user_votes": get_user_votes(user["user_key"]),
         }
     )
 
@@ -401,6 +403,7 @@ def api_recommendations(
             "error_msg": error_msg,
             "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
             "low_bandwidth": is_low_bandwidth(request),
+            "user_votes": get_user_votes(user["user_key"]),
         }
     )
 
@@ -427,6 +430,64 @@ def api_clear_recommendations_cache(request: Request):
     return {"success": True, "message": "Recommendations cache cleared"}
 
 
+@app.post("/api/recommendations/vote")
+def api_vote_recommendation(
+    request: Request,
+    tmdb_id: str = Form(...),
+    media_type: str = Form("movie"),
+    title: str = Form(""),
+    year: Optional[int] = Form(None),
+    vote: int = Form(1),
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    v = 1 if int(vote) > 0 else -1
+    record_vote(
+        user_key=user["user_key"],
+        tmdb_id=tmdb_id,
+        media_type=media_type,
+        title=title,
+        year=year,
+        vote=v
+    )
+    if v == 1:
+        logger.info(
+            "User '%s' upvoted recommendation '%s' (%s, TMDb: %s) [vote: +1].",
+            user.get("username") or user.get("user_key"),
+            title or tmdb_id,
+            media_type,
+            tmdb_id
+        )
+    else:
+        logger.info(
+            "User '%s' downvoted recommendation '%s' (%s, TMDb: %s) [vote: -1].",
+            user.get("username") or user.get("user_key"),
+            title or tmdb_id,
+            media_type,
+            tmdb_id
+        )
+    return JSONResponse({"success": True, "tmdb_id": tmdb_id, "vote": v})
+
+
+@app.post("/api/recommendations/unvote")
+def api_unvote_recommendation(
+    request: Request,
+    tmdb_id: str = Form(...)
+):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    remove_vote(user_key=user["user_key"], tmdb_id=tmdb_id)
+    logger.info(
+        "User '%s' removed vote on recommendation TMDb: %s.",
+        user.get("username") or user.get("user_key"),
+        tmdb_id
+    )
+    return JSONResponse({"success": True, "tmdb_id": tmdb_id})
+
+
 @app.post("/api/recommendations/dismiss")
 def api_dismiss_recommendation(
     request: Request,
@@ -439,15 +500,28 @@ def api_dismiss_recommendation(
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    dismiss_item(
-        user_key=user["user_key"],
-        tmdb_id=tmdb_id,
-        media_type=media_type,
-        title=title,
-        year=year,
-        reason=reason
-    )
-    reason_label = "watched outside Plex" if reason == "already_watched" else "not interested"
+
+    if reason == "not_interested":
+        record_vote(
+            user_key=user["user_key"],
+            tmdb_id=tmdb_id,
+            media_type=media_type,
+            title=title,
+            year=year,
+            vote=-1
+        )
+        reason_label = "not interested (thumbs down)"
+    else:
+        dismiss_item(
+            user_key=user["user_key"],
+            tmdb_id=tmdb_id,
+            media_type=media_type,
+            title=title,
+            year=year,
+            reason=reason
+        )
+        reason_label = "watched outside Plex (marked as seen)" if reason == "already_watched" else reason
+
     logger.info(
         "User '%s' dismissed recommendation '%s' (%s, TMDb: %s) as %s.",
         user.get("username") or user.get("user_key"),
@@ -482,7 +556,8 @@ def api_get_dismissed_recommendations(request: Request):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     dismissals = get_user_dismissals(user["user_key"])
-    return JSONResponse({"success": True, "dismissals": dismissals})
+    votes = get_user_vote_items(user["user_key"])
+    return JSONResponse({"success": True, "dismissals": dismissals, "votes": votes})
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):

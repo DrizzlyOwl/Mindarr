@@ -142,6 +142,19 @@ def init_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_votes (
+        user_key TEXT,
+        tmdb_id TEXT,
+        media_type TEXT,
+        title TEXT,
+        year INTEGER,
+        vote INTEGER NOT NULL,          -- +1 for Thumbs Up, -1 for Thumbs Down
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_key, tmdb_id)
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS system_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -161,6 +174,7 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_rec_cache_sync ON recommendations_cache(sync_version)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_job_started ON job_history(started_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_dismissals ON user_dismissals(user_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_votes ON user_votes(user_key, vote)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_epoch ON system_logs(epoch DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level)")
 
@@ -169,6 +183,7 @@ def init_db():
     _migrate_add_columns(conn)
     _migrate_discard_global(conn)
     _reconcile_watch_events_migration(conn)
+    _migrate_hidden_cards_to_votes(conn)
 
     conn.close()
 
@@ -300,6 +315,25 @@ def _reconcile_watch_events_migration(conn: sqlite3.Connection):
             cur.execute(f"DELETE FROM watch_events WHERE id IN ({placeholders})", batch)
         conn.commit()
         logger.info("Reconciled and removed %s duplicate Tautulli watch events.", len(to_delete_ids))
+
+
+def _migrate_hidden_cards_to_votes(conn: sqlite3.Connection):
+    """Migrate legacy 'not_interested' dismissals to user_votes as downvotes (vote = -1)."""
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        INSERT OR IGNORE INTO user_votes (user_key, tmdb_id, media_type, title, year, vote, created_at)
+        SELECT user_key, tmdb_id, media_type, title, year, -1, created_at
+        FROM user_dismissals
+        WHERE reason = 'not_interested'
+        """)
+        migrated = cur.rowcount
+        conn.commit()
+        if migrated > 0:
+            logger.info("Migrated %s legacy 'not_interested' hidden cards to user_votes (downvotes, vote = -1).", migrated)
+    except sqlite3.OperationalError as e:
+        logger.warning("Could not migrate legacy hidden cards to user_votes: %s", e)
+
 
 def normalize_title(title: str) -> str:
     """Normalize title for fuzzy matching."""
@@ -1051,6 +1085,7 @@ def get_database_stats() -> Dict[str, Any]:
     tables = [
         "users", "user_media", "media_items", "watch_events",
         "seen_identifiers", "recommendations_cache", "job_history", "app_settings",
+        "user_dismissals", "user_votes",
     ]
     table_counts = {}
     for t in tables:
@@ -1105,7 +1140,7 @@ def clear_user_data(user_key: str) -> Dict[str, int]:
     cur = conn.cursor()
     uk = str(user_key)
     deleted = {}
-    for table in ("user_media", "watch_events", "seen_identifiers"):
+    for table in ("user_media", "watch_events", "seen_identifiers", "user_dismissals", "user_votes"):
         cur.execute(f"DELETE FROM {table} WHERE user_key = ?", (uk,))
         deleted[table] = cur.rowcount
     # Recommendations cache is keyed by "<user_key>:..." — clear this user's entries.
@@ -1343,6 +1378,7 @@ def undismiss_item(user_key: str, tmdb_id: str):
     row = cur.fetchone()
 
     cur.execute("DELETE FROM user_dismissals WHERE user_key = ? AND tmdb_id = ?", (uk, tid))
+    cur.execute("DELETE FROM user_votes WHERE user_key = ? AND tmdb_id = ? AND vote = -1", (uk, tid))
     cur.execute("DELETE FROM seen_identifiers WHERE user_key = ? AND id_type = 'tmdb' AND id_value = ?", (uk, tid.lower()))
 
     if row and row["title"]:
@@ -1366,6 +1402,101 @@ def get_user_dismissals(user_key: str) -> List[Dict[str, Any]]:
     WHERE user_key = ?
     ORDER BY created_at DESC, rowid DESC
     """, (str(user_key),))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
+def record_vote(
+    user_key: str,
+    tmdb_id: str,
+    media_type: str = "movie",
+    title: str = "",
+    year: Optional[int] = None,
+    vote: int = 1
+):
+    """Record an upvote (+1) or downvote (-1) for a user recommendation."""
+    conn = get_connection()
+    cur = conn.cursor()
+    uk = str(user_key)
+    tid = str(tmdb_id).strip()
+
+    cur.execute("""
+    INSERT INTO user_votes (user_key, tmdb_id, media_type, title, year, vote, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_key, tmdb_id) DO UPDATE SET
+        vote = excluded.vote,
+        title = COALESCE(excluded.title, user_votes.title),
+        year = COALESCE(excluded.year, user_votes.year),
+        created_at = CURRENT_TIMESTAMP
+    """, (uk, tid, media_type, title, year, int(vote)))
+    conn.commit()
+    conn.close()
+
+    if int(vote) == -1:
+        # Also mark as dismissed so it's placed in seen_identifiers and user_dismissals
+        dismiss_item(
+            user_key=uk,
+            tmdb_id=tid,
+            media_type=media_type,
+            title=title,
+            year=year,
+            reason="not_interested"
+        )
+    else:
+        # If it was previously dismissed (e.g. downvoted), remove dismissal
+        undismiss_item(user_key=uk, tmdb_id=tid)
+
+
+def remove_vote(user_key: str, tmdb_id: str):
+    """Remove a vote (thumbs up or down). If downvoted, also restores from dismissals."""
+    conn = get_connection()
+    cur = conn.cursor()
+    uk = str(user_key)
+    tid = str(tmdb_id).strip()
+
+    cur.execute("SELECT vote FROM user_votes WHERE user_key = ? AND tmdb_id = ?", (uk, tid))
+    row = cur.fetchone()
+    prev_vote = row["vote"] if row else None
+
+    cur.execute("DELETE FROM user_votes WHERE user_key = ? AND tmdb_id = ?", (uk, tid))
+    conn.commit()
+    conn.close()
+
+    if prev_vote == -1:
+        undismiss_item(user_key=uk, tmdb_id=tid)
+    else:
+        clear_user_recommendations_cache(uk)
+
+
+def get_user_votes(user_key: str) -> Dict[str, int]:
+    """Return a mapping of tmdb_id -> vote (-1 or 1) for a user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT tmdb_id, vote FROM user_votes WHERE user_key = ?", (str(user_key),))
+    votes = {str(r["tmdb_id"]): int(r["vote"]) for r in cur.fetchall()}
+    conn.close()
+    return votes
+
+
+def get_user_vote_items(user_key: str, vote: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Return all voted items for a user, optionally filtered by vote polarity."""
+    conn = get_connection()
+    cur = conn.cursor()
+    if vote is not None:
+        cur.execute("""
+        SELECT user_key, tmdb_id, media_type, title, year, vote, created_at
+        FROM user_votes
+        WHERE user_key = ? AND vote = ?
+        ORDER BY created_at DESC, rowid DESC
+        """, (str(user_key), int(vote)))
+    else:
+        cur.execute("""
+        SELECT user_key, tmdb_id, media_type, title, year, vote, created_at
+        FROM user_votes
+        WHERE user_key = ?
+        ORDER BY created_at DESC, rowid DESC
+        """, (str(user_key),))
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows

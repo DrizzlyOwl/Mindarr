@@ -10,7 +10,9 @@ from plex_recommender.db import (
     set_cached_recommendations,
     get_library_availability_index,
     get_setting,
-    get_user_media_items
+    get_user_media_items,
+    get_user_votes,
+    get_user_vote_items
 )
 from plex_recommender.discovery.tmdb import (
     TMDbClient,
@@ -132,6 +134,11 @@ class ContentRecommender:
         availability_index = get_library_availability_index()
         machine_id = settings.plex_machine_id
 
+        user_votes = get_user_votes(user_key)
+        upvoted_items = get_user_vote_items(user_key, vote=1)
+        upvoted_ids = {str(uv["tmdb_id"]) for uv in upvoted_items}
+        upvoted_titles = {str(uv.get("title")) for uv in upvoted_items if uv.get("title")}
+
         top_genres = profile.get("top_genres", [])
         if not top_genres:
             return {
@@ -245,6 +252,17 @@ class ContentRecommender:
             try:
                 seen_items = get_user_media_items(user_key)
                 seeds = []
+
+                # First inject upvoted items with top priority
+                for uv in upvoted_items:
+                    st = uv.get("tmdb_id")
+                    smtype = uv.get("media_type")
+                    if not st or smtype not in ("movie", "show"):
+                        continue
+                    if media_type != "all" and media_type != smtype:
+                        continue
+                    seeds.append((999.0, 999, st, smtype, uv.get("title", "")))
+
                 for it in seen_items:
                     st = it.get("tmdb_id")
                     smtype = it.get("media_type")
@@ -262,7 +280,7 @@ class ContentRecommender:
                     seeds.append((rating or 0, it.get("view_count") or 0, st, smtype, it.get("title", "")))
 
                 seeds.sort(key=lambda x: (x[0], x[1]), reverse=True)
-                top_seeds = seeds[:4]
+                top_seeds = seeds[:6]
 
                 if top_seeds:
                     def _fetch_seed_recs(seed_info):
@@ -388,10 +406,21 @@ class ContentRecommender:
                     match_score += 5.0
                     score_points.append({"factor": f"Favored Era ({decade_str})", "points": "+5%"})
 
+            # Direct Upvote boost
+            is_upvoted = tmdb_str in upvoted_ids
+            cand["is_upvoted"] = is_upvoted
+            if is_upvoted:
+                match_score += 20.0
+                score_points.append({"factor": "Explicitly Upvoted (Thumbs Up)", "points": "+20%"})
+
             seed_title = seed_origin.get(tmdb_str)
             if seed_title:
-                match_score += 10.0
-                score_points.append({"factor": f"Similar to watched ({seed_title})", "points": "+10%"})
+                is_upvoted_seed = seed_title in upvoted_titles
+                bonus = 15.0 if is_upvoted_seed else 10.0
+                pts_label = f"+{int(bonus)}%"
+                factor_text = f"Aligned with upvoted title ({seed_title})" if is_upvoted_seed else f"Similar to watched ({seed_title})"
+                match_score += bonus
+                score_points.append({"factor": factor_text, "points": pts_label})
 
             # Re-order genres so that the matched category is first
             sorted_genres = list(cand_genres)
