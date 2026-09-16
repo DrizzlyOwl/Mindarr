@@ -989,6 +989,67 @@ def test_api_recommendations_vote_and_unvote():
         assert "8080" not in votes_after
 
 
+def test_api_pool_stats():
+    from plex_recommender.db import clear_user_data, record_vote, dismiss_item
+
+    with TestClient(app) as client:
+        _login(client)
+        clear_user_data(USER)
+
+        resp = client.get("/api/recommendations/pool-stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["dismissals_count"] == 0
+        assert data["upvotes_count"] == 0
+        assert data["downvotes_count"] == 0
+
+        # Add an upvote and a dismissal
+        record_vote(USER, tmdb_id="1111", media_type="movie", title="Good", vote=1)
+        dismiss_item(USER, tmdb_id="2222", media_type="movie", title="Seen", reason="already_watched")
+
+        resp2 = client.get("/api/recommendations/pool-stats")
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["upvotes_count"] == 1
+        assert data2["dismissals_count"] == 1
+
+
+def test_api_recommendations_exhaustion_rendering(monkeypatch):
+    from unittest.mock import MagicMock
+    from plex_recommender.web import app as webapp
+
+    mock_rec = MagicMock()
+    mock_rec.get_recommendations.return_value = {
+        "success": True,
+        "is_complete": True,
+        "stage": "full",
+        "total_candidates_scanned": 15,
+        "unseen_count": 0,
+        "recommendations": [],
+        "page": 1,
+        "total_pages": 1,
+        "limit": 18,
+        "query_genres": [],
+        "from_cache": False,
+        "exhaustion_reason": "exhausted",
+    }
+    monkeypatch.setattr(webapp, "recommender", mock_rec)
+    monkeypatch.setattr(webapp.analyzer, "analyze", lambda uk: {"has_data": True})
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.get("/api/recommendations")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_results"] is False
+        assert data["exhaustion_reason"] == "exhausted"
+        assert "explored all available titles" in data["html"]
+        assert "Review Tuned Preferences" in data["html"]
+        assert "Reset Filters" in data["html"]
+
+
+
 
 
 

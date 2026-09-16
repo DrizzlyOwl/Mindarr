@@ -8,13 +8,104 @@
     </div>
 </div>
 {% elif not results.recommendations %}
-<!-- No Results -->
+{% if results.exhaustion_reason == "exhausted" %}
+<!-- Exhausted: All Discoverable Titles Explored -->
+<div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-6 max-w-2xl mx-auto shadow-2xl">
+    <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+        <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+    </div>
+
+    <div class="space-y-2">
+        <h3 class="text-xl font-black text-white">You've explored all available titles</h3>
+        <p class="text-sm text-slate-300 max-w-lg mx-auto leading-relaxed">
+            Based on your taste profile and current filters, all discoverable recommendations have been rated, marked as seen, or dismissed.
+        </p>
+    </div>
+
+    {% if pool_stats %}
+    <!-- Tuned Preferences Summary Badges -->
+    <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+        {% if pool_stats.dismissals_count %}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            {{ pool_stats.dismissals_count }} marked as seen
+        </span>
+        {% endif %}
+        {% if pool_stats.downvotes_count %}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+            {{ pool_stats.downvotes_count }} thumbs down
+        </span>
+        {% endif %}
+        {% if pool_stats.upvotes_count %}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            {{ pool_stats.upvotes_count }} upvoted
+        </span>
+        {% endif %}
+        {% if pool_stats.seen_count and not pool_stats.dismissals_count and not pool_stats.downvotes_count %}
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+            {{ pool_stats.seen_count }} titles in history &amp; seen index
+        </span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Action CTAs -->
+    <div class="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+        <button type="button" onclick="openHiddenModal()" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition shadow-sm">
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            Review Tuned Preferences
+        </button>
+        <button type="button" onclick="resetFilters()" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-bold transition shadow-lg shadow-amber-500/20">
+            <svg class="w-4 h-4 text-gray-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reset Filters &amp; Broaden Search
+        </button>
+    </div>
+</div>
+{% elif results.exhaustion_reason == "no_results" %}
+<!-- No Results (Filters too narrow) -->
+<div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center space-y-4 max-w-xl mx-auto">
+    <div class="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
+        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+    </div>
+    <div class="space-y-1">
+        <h3 class="text-lg font-bold text-white">No Unseen Titles Found</h3>
+        <p class="text-sm text-slate-400 leading-relaxed">
+            The current combination of genre, language, and minimum rating filters yielded no matches in TMDb.
+        </p>
+    </div>
+    <div class="pt-2">
+        <button type="button" onclick="resetFilters()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-bold transition">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reset All Filters
+        </button>
+    </div>
+</div>
+{% else %}
+<!-- Generic No Results -->
 <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-10 text-center space-y-3">
     <h3 class="text-lg font-bold text-white">No Unseen Titles Found</h3>
     <p class="text-sm text-slate-400 max-w-md mx-auto">
         Try adjusting language, lowering the minimum rating threshold, or selecting a different genre filter.
     </p>
+    <div class="pt-2">
+        <button type="button" onclick="resetFilters()" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-bold transition">
+            Reset Filters
+        </button>
+    </div>
 </div>
+{% endif %}
 {% else %}
 
 <!-- Recommendation Cards Grid -->

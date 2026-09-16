@@ -114,7 +114,8 @@ class ContentRecommender:
                     "limit": limit,
                     "query_genres": cached_pool.get("query_genres", [genre_filter] if genre_filter else []),
                     "from_cache": True,
-                    "sync_version": current_sync
+                    "sync_version": current_sync,
+                    "exhaustion_reason": cached_pool.get("exhaustion_reason", "exhausted" if unseen_count == 0 else None)
                 }
 
             # Check legacy cache key fallback
@@ -314,9 +315,11 @@ class ContentRecommender:
 
         # In-Memory Deduplication, Genre Enforcement & Pre-Scoring
         scored_candidates = []
+        seen_filtered_count = 0
         for cand in candidates:
             tmdb_str = cand["tmdb_id"]
             if tmdb_str in seen_tmdb:
+                seen_filtered_count += 1
                 continue
 
             # Strict genre filter: exclude candidates not matching the genre
@@ -332,8 +335,10 @@ class ContentRecommender:
             year = cand.get("year")
             norm_key = f"{norm_title}::{year or ''}"
             if norm_key in seen_titles:
+                seen_filtered_count += 1
                 continue
             if not year and any(k.startswith(f"{norm_title}::") for k in seen_titles):
+                seen_filtered_count += 1
                 continue
 
             # Rating threshold
@@ -477,8 +482,10 @@ class ContentRecommender:
 
             # Secondary seen checks using external IDs
             if imdb_id and imdb_id.lower() in seen_imdb:
+                seen_filtered_count += 1
                 continue
             if tvdb_id and str(tvdb_id).lower() in seen_tvdb:
+                seen_filtered_count += 1
                 continue
 
             cand["imdb_id"] = imdb_id
@@ -584,6 +591,15 @@ class ContentRecommender:
         start = (page - 1) * limit
         page_items = enriched_recommendations[start:start + limit]
 
+        exhaustion_reason = None
+        if unseen_count == 0:
+            if not candidates:
+                exhaustion_reason = "no_results"
+            elif seen_filtered_count > 0:
+                exhaustion_reason = "exhausted"
+            else:
+                exhaustion_reason = "no_results"
+
         is_complete = (stage == "full")
         result = {
             "success": True,
@@ -597,7 +613,8 @@ class ContentRecommender:
             "limit": limit,
             "query_genres": selected_genres,
             "from_cache": False,
-            "sync_version": current_sync
+            "sync_version": current_sync,
+            "exhaustion_reason": exhaustion_reason
         }
 
         # Cache complete results
@@ -607,7 +624,8 @@ class ContentRecommender:
                 pool_data = {
                     "all_recommendations": enriched_recommendations,
                     "total_candidates_scanned": len(candidates),
-                    "query_genres": selected_genres
+                    "query_genres": selected_genres,
+                    "exhaustion_reason": exhaustion_reason
                 }
                 set_cached_recommendations(pool_cache_key, current_sync, pool_data)
                 # Also save legacy format for exact key hits

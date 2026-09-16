@@ -251,6 +251,22 @@
             span.classList.toggle('text-slate-300', !on);
         }
 
+        function resetFilters() {
+            if (!form) return;
+            form.type.value = 'all';
+            updateCategoryDropdown();
+            form.genre.value = '';
+            form.language.value = 'en';
+            form.min_rating.value = '5.0';
+            form.available.checked = false;
+            form.include_kids.checked = false;
+            syncAvailableStyle();
+            syncKidsStyle();
+            currentPage = 1;
+            loadRecommendations();
+        }
+        window.resetFilters = resetFilters;
+
         function renderFastBatch(dataFast) {
             return new Promise((resolve) => {
                 const parser = new DOMParser();

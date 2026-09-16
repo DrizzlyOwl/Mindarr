@@ -433,4 +433,43 @@ def test_user_votes_crud_and_migration():
     assert len(get_user_votes(uk)) == 0
 
 
+def test_get_user_action_counts():
+    from plex_recommender.db import (
+        get_user_action_counts,
+        record_vote,
+        dismiss_item,
+        clear_user_data
+    )
+
+    uk = "action_counts_user"
+    clear_user_data(uk)
+
+    initial_counts = get_user_action_counts(uk)
+    assert initial_counts["dismissals_count"] == 0
+    assert initial_counts["upvotes_count"] == 0
+    assert initial_counts["downvotes_count"] == 0
+    assert initial_counts["seen_count"] == 0
+
+    # 1 dismissal
+    dismiss_item(uk, tmdb_id="111", media_type="movie", title="Dismissed Movie", year=2020, reason="already_watched")
+    # 1 upvote
+    record_vote(uk, tmdb_id="222", media_type="movie", title="Upvoted Movie", year=2021, vote=1)
+    # 1 downvote (which also creates a dismissal and seen_identifier)
+    record_vote(uk, tmdb_id="333", media_type="show", title="Downvoted Show", year=2022, vote=-1)
+
+    counts = get_user_action_counts(uk)
+    assert counts["dismissals_count"] == 2
+    assert counts["upvotes_count"] == 1
+    assert counts["downvotes_count"] == 1
+    assert counts["seen_count"] >= 2
+
+    clear_user_data(uk)
+    cleared = get_user_action_counts(uk)
+    assert cleared["dismissals_count"] == 0
+    assert cleared["upvotes_count"] == 0
+    assert cleared["downvotes_count"] == 0
+    assert cleared["seen_count"] == 0
+
+
+
 

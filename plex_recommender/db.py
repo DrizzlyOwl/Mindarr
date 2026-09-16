@@ -1502,6 +1502,33 @@ def get_user_vote_items(user_key: str, vote: Optional[int] = None) -> List[Dict[
     return rows
 
 
+def get_user_action_counts(user_key: str) -> Dict[str, int]:
+    """Return count of dismissals, upvotes, downvotes, and seen identifiers for a user."""
+    conn = get_connection()
+    cur = conn.cursor()
+    uk = str(user_key)
+
+    cur.execute("SELECT COUNT(*) AS c FROM user_dismissals WHERE user_key = ?", (uk,))
+    dismissals = cur.fetchone()["c"]
+
+    cur.execute("SELECT COUNT(*) AS c FROM user_votes WHERE user_key = ? AND vote = 1", (uk,))
+    upvotes = cur.fetchone()["c"]
+
+    cur.execute("SELECT COUNT(*) AS c FROM user_votes WHERE user_key = ? AND vote = -1", (uk,))
+    downvotes = cur.fetchone()["c"]
+
+    cur.execute("SELECT COUNT(*) AS c FROM seen_identifiers WHERE user_key = ?", (uk,))
+    seen = cur.fetchone()["c"]
+
+    conn.close()
+    return {
+        "dismissals_count": dismissals,
+        "upvotes_count": upvotes,
+        "downvotes_count": downvotes,
+        "seen_count": seen,
+    }
+
+
 def insert_system_log(level: str, logger_name: str, message: str, epoch: Optional[float] = None):
     """Insert a log entry into system_logs table."""
     if epoch is None:

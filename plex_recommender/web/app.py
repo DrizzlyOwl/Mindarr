@@ -22,6 +22,7 @@ from plex_recommender.db import (
     get_enriched_watch_events, get_watch_source_breakdown,
     dismiss_item, undismiss_item, get_user_dismissals,
     record_vote, remove_vote, get_user_votes, get_user_vote_items,
+    get_user_action_counts,
     get_system_logs, truncate_system_logs, clear_all_system_logs,
 )
 from plex_recommender.auth import (
@@ -396,6 +397,7 @@ def api_recommendations(
             logger.error(f"Recommendation generation error: {e}")
             error_msg = str(e)
 
+    user_counts = get_user_action_counts(user["user_key"])
     html = templates.get_template("_recommendation_cards.html").render(
         {
             "request": request,
@@ -404,6 +406,7 @@ def api_recommendations(
             "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
             "low_bandwidth": is_low_bandwidth(request),
             "user_votes": get_user_votes(user["user_key"]),
+            "pool_stats": user_counts,
         }
     )
 
@@ -416,6 +419,7 @@ def api_recommendations(
         "page": results.get("page", 1),
         "total_pages": results.get("total_pages", 1),
         "unseen_count": results.get("unseen_count", 0),
+        "exhaustion_reason": results.get("exhaustion_reason"),
         "error": error_msg,
     })
 
@@ -558,6 +562,15 @@ def api_get_dismissed_recommendations(request: Request):
     dismissals = get_user_dismissals(user["user_key"])
     votes = get_user_vote_items(user["user_key"])
     return JSONResponse({"success": True, "dismissals": dismissals, "votes": votes})
+
+
+@app.get("/api/recommendations/pool-stats")
+def api_recommendations_pool_stats(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    counts = get_user_action_counts(user["user_key"])
+    return JSONResponse({"success": True, **counts})
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
