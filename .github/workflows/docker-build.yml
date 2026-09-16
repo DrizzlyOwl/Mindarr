@@ -1,0 +1,29 @@
+name: Docker Build
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  build:
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    with:
+      output: image
+      push: true
+      platforms: linux/amd64,linux/arm64
+      meta-images: ghcr.io/${{ github.repository }}
+      meta-tags: |
+        type=sha
+        type=raw,value=latest
+      cache: true
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
