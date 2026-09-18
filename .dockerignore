@@ -8,5 +8,6 @@ __pycache__/
 data/
 config/
 tests/
+docs/
 *.log
 .DS_Store

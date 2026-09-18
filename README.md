@@ -9,6 +9,25 @@ Deployable as a **TrueNAS SCALE Custom App** or standalone Docker container. Web
 
 ---
 
+## Preview
+
+### Viewing Trends & Taste Profile
+Time-decayed genre affinity, release-decade distribution, and your top 10 movies & TV shows — all backed by cited metrics in a narrative taste-profile summary.
+
+![Mindarr Dashboard](docs/screenshots/dashboard.png)
+
+### Unseen Recommendations
+TMDb-powered discovery cards with match scores, decision rationale tooltips, and 1-click Overseerr requests — filtered against your watch history for guaranteed-unseen picks.
+
+![Mindarr Recommendations](docs/screenshots/recommendations.png)
+
+### Community & Server Leaderboard
+Server-wide benchmarks, RPG-style watcher levels/XP, achievement badges, and a podium leaderboard — with peer identities anonymized for privacy.
+
+![Mindarr Community](docs/screenshots/community.png)
+
+---
+
 ## Features
 
 - **Sign in with Plex**: Browser-based OAuth PIN login. The **first user to sign in becomes
