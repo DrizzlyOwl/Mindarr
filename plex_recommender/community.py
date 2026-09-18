@@ -59,10 +59,6 @@ class CommunityService:
             elif not isinstance(d.get("genres"), list):
                 d["genres"] = []
             media_meta[d["item_id"]] = d
-            # Also index by numeric ratingKey if prefixed
-            if d["item_id"].startswith("movie_") or d["item_id"].startswith("show_"):
-                raw_id = d["item_id"].split("_", 1)[1]
-                media_meta[raw_id] = d
 
         # Local user counts per item from user_media to cross-reference / fallback
         local_user_counts: Dict[str, Dict[str, int]] = {}
@@ -79,14 +75,11 @@ class CommunityService:
                     "total_plays": int(cr["total_plays"] or 1),
                 }
                 local_user_counts[iid] = cnt_info
-                if iid.startswith("movie_") or iid.startswith("show_"):
-                    raw_id = iid.split("_", 1)[1]
-                    local_user_counts[raw_id] = cnt_info
 
             title_counts_rows = conn.execute("""
                 SELECT m.title, m.year, COUNT(DISTINCT um.user_key) as user_count, SUM(um.view_count) as total_plays
                 FROM user_media um
-                JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('movie_' || um.item_id) OR m.item_id = ('show_' || um.item_id)
+                JOIN media_items m ON m.item_id = um.item_id
                 GROUP BY m.title, m.year
             """).fetchall()
             for tr in title_counts_rows:
@@ -109,7 +102,7 @@ class CommunityService:
                        COALESCE(SUM(CASE WHEN m.media_type = 'movie' THEN 1 ELSE 0 END), 0) as movie_count,
                        COALESCE(SUM(CASE WHEN m.media_type IN ('show', 'episode') THEN 1 ELSE 0 END), 0) as show_count
                 FROM user_media um
-                LEFT JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('movie_' || um.item_id) OR m.item_id = ('show_' || um.item_id)
+                LEFT JOIN media_items m ON m.item_id = um.item_id
                 GROUP BY um.user_key
             """).fetchall()
             for r in um_rows:
@@ -144,7 +137,7 @@ class CommunityService:
             ug_rows = conn.execute("""
                 SELECT um.user_key, m.genres
                 FROM user_media um
-                JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('movie_' || um.item_id) OR m.item_id = ('show_' || um.item_id)
+                JOIN media_items m ON m.item_id = um.item_id
                 WHERE m.genres IS NOT NULL AND m.genres != '' AND m.genres != '[]'
             """).fetchall()
             for r in ug_rows:
@@ -260,8 +253,6 @@ class CommunityService:
             item_seen = (
                 (seen_key in seen_index["title_year"])
                 or (rk in user_item_ids)
-                or (f"movie_{rk}" in user_item_ids)
-                or (f"show_{rk}" in user_item_ids)
             )
 
             # Clean timestamp
@@ -474,7 +465,7 @@ class CommunityService:
             SELECT um.item_id, m.title, m.year, m.genres, m.summary, m.tmdb_id, m.imdb_id,
                    COUNT(DISTINCT um.user_key) as user_count, SUM(um.view_count) as total_plays
             FROM user_media um
-            LEFT JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('movie_' || um.item_id)
+            LEFT JOIN media_items m ON m.item_id = um.item_id
             WHERE m.media_type = 'movie'
             GROUP BY um.item_id
             ORDER BY user_count DESC, total_plays DESC
@@ -486,7 +477,7 @@ class CommunityService:
             SELECT um.item_id, m.title, m.year, m.genres, m.summary, m.tmdb_id, m.imdb_id,
                    COUNT(DISTINCT um.user_key) as user_count, SUM(um.view_count) as total_plays
             FROM user_media um
-            LEFT JOIN media_items m ON m.item_id = um.item_id OR m.item_id = ('show_' || um.item_id)
+            LEFT JOIN media_items m ON m.item_id = um.item_id
             WHERE m.media_type IN ('show', 'episode')
             GROUP BY um.item_id
             ORDER BY user_count DESC, total_plays DESC
@@ -512,8 +503,6 @@ class CommunityService:
             seen = (
                 (seen_key in seen_index["title_year"])
                 or (rk in user_item_ids)
-                or (f"movie_{rk}" in user_item_ids)
-                or (f"show_{rk}" in user_item_ids)
             )
             genres = d.get("genres") or []
             if isinstance(genres, str):
@@ -650,7 +639,6 @@ class CommunityService:
         local_user_counts = local_user_counts or {}
         local_info = (
             local_user_counts.get(rk)
-            or local_user_counts.get(f"{media_type}_{rk}")
             or local_user_counts.get(seen_key)
             or {}
         )
@@ -676,11 +664,9 @@ class CommunityService:
         seen = (
             (seen_key in seen_index["title_year"])
             or (rk in user_item_ids)
-            or (f"movie_{rk}" in user_item_ids)
-            or (f"show_{rk}" in user_item_ids)
         )
 
-        meta = media_meta.get(rk) or media_meta.get(f"{media_type}_{rk}") or {}
+        meta = media_meta.get(rk) or {}
 
         return {
             "title": title,

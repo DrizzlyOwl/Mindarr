@@ -112,6 +112,128 @@ def test_plex_episode_rolls_up_to_show_with_genres(monkeypatch):
     assert set(shows[0]["genres"]) == {"Comedy", "Drama"}
 
 
+def test_sync_library_metadata_uses_bare_ratingkey_item_id(monkeypatch):
+    """Regression test: the library scan must NOT prefix item_id with
+    movie_/show_/episode_, since watch-history sync always uses the bare
+    ratingKey. A mismatch here re-splits media_items into duplicate rows."""
+    from plex_recommender.db import get_connection
+
+    monkeypatch.setattr(settings, "plex_token", "tok")
+
+    class Tag:
+        def __init__(self, tag):
+            self.tag = tag
+
+    class FakeMovie:
+        ratingKey = "8001"
+        title = "Bare Key Movie"
+        year = 2022
+        genres = [Tag("Action")]
+        directors = []
+        writers = []
+        roles = []
+        summary = ""
+        userRating = None
+        audienceRating = None
+        rating = None
+        viewCount = 1
+        lastViewedAt = None
+        guids = []
+        guid = "imdb://tt8000000"
+        originallyAvailableAt = None
+
+    class FakeMovieSection:
+        title = "Movies"
+        type = "movie"
+        def all(self):
+            return [FakeMovie()]
+
+    class FakeLibrary:
+        def sections(self):
+            return [FakeMovieSection()]
+
+    class FakePlex:
+        friendlyName = "Test Server"
+        library = FakeLibrary()
+
+    with patch.object(sync, "get_plex_instance", return_value=FakePlex()):
+        sync.sync_library_metadata()
+
+    conn = get_connection()
+    rows = conn.execute("SELECT item_id FROM media_items WHERE title = 'Bare Key Movie'").fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    assert rows[0]["item_id"] == "8001"  # bare, no "movie_" prefix
+
+
+def test_plex_history_tallies_view_count_across_multiple_events(monkeypatch):
+    """Regression test: multiple watch events for the same movie/show must
+    accumulate into view_count, not collapse to 1 (MAX-based upsert bug)."""
+    from plex_recommender.db import get_user_media_items
+    monkeypatch.setattr(settings, "plex_token", "tok")
+
+    class Tag:
+        def __init__(self, tag):
+            self.tag = tag
+
+    class FakeMovieEvent:
+        ratingKey = "777"
+        type = "movie"
+        title = "Rewatched Movie"
+        viewedAt = None
+        duration = 0
+
+    class FakeEpisodeEvent:
+        def __init__(self, rating_key):
+            self.ratingKey = rating_key
+            self.type = "episode"
+            self.title = "Ep"
+            self.viewedAt = None
+            self.duration = 0
+            self.grandparentRatingKey = "42"
+
+    class FakeMovie:
+        year = 2018
+        guids = []
+        guid = "imdb://tt9999999"
+        title = "Rewatched Movie"
+        genres = []
+        directors = []
+        roles = []
+
+    class FakeShow:
+        year = 2015
+        guids = []
+        guid = "tvdb://12345"
+        title = "Binged Show"
+        genres = [Tag("Comedy")]
+        directors = []
+        roles = []
+
+    class FakePlex:
+        def systemAccounts(self):
+            return FAKE_SYSTEM_ACCOUNTS
+
+        def history(self, maxresults=5000, accountID=None):
+            return [
+                FakeMovieEvent(), FakeMovieEvent(), FakeMovieEvent(),
+                FakeEpisodeEvent("101"), FakeEpisodeEvent("102"),
+            ]
+
+        def fetchItem(self, key):
+            if int(key) == 42:
+                return FakeShow()
+            return FakeMovie()
+
+    with patch.object(sync, "get_plex_instance", return_value=FakePlex()):
+        sync.sync_plex_user_history(USER)
+
+    items = {i["item_id"]: i for i in get_user_media_items(USER)}
+    assert items["777"]["view_count"] == 3
+    assert items["42"]["view_count"] == 2
+
+
 # --- Tautulli enrichment (optional secondary source) ---
 
 def test_no_enrichment_when_tautulli_unconfigured():

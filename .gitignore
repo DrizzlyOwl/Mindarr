@@ -223,4 +223,7 @@ __marimo__/
 config/
 *.db
 
+# Cached TMDb posters (regenerated on demand, safe to delete)
+plex_recommender/web/static/posters/
+
 

@@ -126,7 +126,7 @@ def sync_library_metadata(progress_callback: Optional[Callable[[str, float], Non
                     kws = existing_keywords.get(tmdb_id_str, []) if tmdb_id_str else []
 
                     movie_batch.append({
-                        "item_id": f"movie_{movie.ratingKey}",
+                        "item_id": str(movie.ratingKey),
                         "media_type": "movie",
                         "title": movie.title,
                         "year": getattr(movie, "year", None),
@@ -168,7 +168,7 @@ def sync_library_metadata(progress_callback: Optional[Callable[[str, float], Non
                         kws = existing_keywords.get(tmdb_id_str, []) if tmdb_id_str else []
 
                         show_batch.append({
-                            "item_id": f"show_{show.ratingKey}",
+                            "item_id": str(show.ratingKey),
                             "media_type": "show",
                             "title": show.title,
                             "year": getattr(show, "year", None),
@@ -229,7 +229,7 @@ def sync_library_metadata(progress_callback: Optional[Callable[[str, float], Non
                                 kws = existing_keywords.get(tmdb_id_str, []) if tmdb_id_str else []
 
                             upsert_media_item({
-                                "item_id": f"show_{show.ratingKey}",
+                                "item_id": str(show.ratingKey),
                                 "media_type": "show",
                                 "title": show.title,
                                 "year": getattr(show, "year", None),
@@ -256,7 +256,7 @@ def sync_library_metadata(progress_callback: Optional[Callable[[str, float], Non
                     # Also index individual episode
                     ep_guids = parse_guids(ep)
                     episode_batch.append({
-                        "item_id": f"episode_{ep.ratingKey}",
+                        "item_id": str(ep.ratingKey),
                         "media_type": "episode",
                         "title": f"{show_title} - {ep.title}",
                         "year": getattr(ep, "year", None),
@@ -385,6 +385,10 @@ def sync_plex_user_history(
 
     count = 0
     metadata_cache: Dict[str, Dict[str, Any]] = {}
+    # Tally view counts per target (movie or parent-show) across this full
+    # history pull, since Plex history is per-playback-event, not per-item.
+    target_tally: Dict[str, Dict[str, Any]] = {}
+
     for h in history_entries:
         rating_key = str(getattr(h, "ratingKey", "") or "")
         if not rating_key:
@@ -446,10 +450,29 @@ def sync_plex_user_history(
                 logger.debug("Could not fetch Plex metadata for %s: %s", target_key, e)
             metadata_cache[target_key] = info
 
+        tally = target_tally.get(target_key)
+        if tally is None:
+            tally = {
+                "media_type": target_type,
+                "title": info.get("title") or title,
+                "info": info,
+                "view_count": 0,
+                "last_viewed_at": viewed_at,
+            }
+            target_tally[target_key] = tally
+        tally["view_count"] += 1
+        # Track the most recent view across all events for this target.
+        if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
+            tally["last_viewed_at"] = viewed_at
+
+        count += 1
+
+    for target_key, tally in target_tally.items():
+        info = tally["info"]
         upsert_user_media(user_key, {
             "item_id": target_key,
-            "media_type": target_type,
-            "title": info.get("title") or title,
+            "media_type": tally["media_type"],
+            "title": tally["title"],
             "year": info.get("year"),
             "genres": info.get("genres", []),
             "directors": info.get("directors", []),
@@ -457,11 +480,10 @@ def sync_plex_user_history(
             "imdb_id": info.get("imdb_id"),
             "tmdb_id": info.get("tmdb_id"),
             "tvdb_id": info.get("tvdb_id"),
-            "view_count": 1,
-            "last_viewed_at": viewed_at,
+            "view_count": tally["view_count"],
+            "last_viewed_at": tally["last_viewed_at"],
             "user_rating": info.get("user_rating"),
         })
-        count += 1
 
     logger.info("Recorded %s Plex history events for user %s.", count, user_key)
     return count
@@ -516,6 +538,10 @@ def sync_tautulli_user_history(
 
     count = 0
     metadata_cache: Dict[str, Dict[str, Any]] = {}
+    # Tally view counts per target (movie or parent-show) across this full
+    # history pull, since Tautulli history is per-playback-event, not per-item.
+    target_tally: Dict[str, Dict[str, Any]] = {}
+
     for row in history:
         media_type = row.get("media_type", "movie")
         viewed_at = _epoch_to_iso(row.get("date") or row.get("started"))
@@ -551,21 +577,40 @@ def sync_tautulli_user_history(
         if target_key not in metadata_cache:
             metadata_cache[target_key] = tautulli.get_metadata(target_key)
         meta = metadata_cache[target_key]
+
+        tally = target_tally.get(target_key)
+        if tally is None:
+            tally = {
+                "media_type": target_type,
+                "title": meta.get("title") or fallback_title,
+                "year": meta.get("year") or row.get("year"),
+                "meta": meta,
+                "view_count": 0,
+                "last_viewed_at": viewed_at,
+            }
+            target_tally[target_key] = tally
+        tally["view_count"] += 1
+        if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
+            tally["last_viewed_at"] = viewed_at
+
+        count += 1
+
+    for target_key, tally in target_tally.items():
+        meta = tally["meta"]
         upsert_user_media(user_key, {
             "item_id": target_key,
-            "media_type": target_type,
-            "title": meta.get("title") or fallback_title,
-            "year": meta.get("year") or row.get("year"),
+            "media_type": tally["media_type"],
+            "title": tally["title"],
+            "year": tally["year"],
             "genres": meta.get("genres", []),
             "directors": meta.get("directors", []),
             "actors": meta.get("actors", []),
             "imdb_id": meta.get("imdb_id"),
             "tmdb_id": meta.get("tmdb_id"),
             "tvdb_id": meta.get("tvdb_id"),
-            "view_count": 1,
-            "last_viewed_at": viewed_at,
+            "view_count": tally["view_count"],
+            "last_viewed_at": tally["last_viewed_at"],
         })
-        count += 1
 
     logger.info("Recorded %s Tautulli history events for user %s.", count, user_key)
     return count

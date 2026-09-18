@@ -15,6 +15,8 @@ from plex_recommender.db import (
     get_user,
     get_watch_events,
     get_top_watched,
+    get_connection,
+    _migrate_normalize_media_item_ids,
 )
 
 USER = "u1"
@@ -154,6 +156,126 @@ def test_get_top_watched_orders_and_filters():
 
     # Items with zero view_count are excluded from the ranking entirely.
     assert get_top_watched("no_such_user", "movie", limit=10) == []
+
+
+def test_migration_merges_prefixed_row_into_existing_bare_twin():
+    """Regression test: library-scan-prefixed media_items rows (movie_/show_/episode_)
+    must merge into their bare-ratingKey twin used by user_media, not stay split."""
+    conn = get_connection()
+    cur = conn.cursor()
+    # Simulate the pre-fix state: a rich library-scanned row (prefixed) and a
+    # thinner history-sync row (bare) for the same physical movie.
+    upsert_media_item({
+        "item_id": "movie_500",
+        "media_type": "movie",
+        "title": "Rich Title",
+        "year": 2020,
+        "genres": ["Action", "Sci-Fi"],
+        "directors": ["Some Director"],
+        "actors": ["Some Actor"],
+        "imdb_id": "tt5000000",
+        "tmdb_id": "5000",
+        "view_count": 42,
+    })
+    upsert_media_item({
+        "item_id": "500",
+        "media_type": "movie",
+        "title": "Rich Title",
+        "year": 2020,
+        "genres": [],
+        "directors": [],
+        "actors": [],
+        "imdb_id": None,
+        "tmdb_id": None,
+        "view_count": 3,
+    })
+    conn.close()
+
+    conn = get_connection()
+    _migrate_normalize_media_item_ids(conn)
+    conn.close()
+
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM media_items WHERE item_id IN ('500', 'movie_500')").fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    merged = dict(rows[0])
+    assert merged["item_id"] == "500"
+    assert merged["view_count"] == 42  # MAX of both
+    assert "Action" in merged["genres"]  # richer metadata preserved
+    assert merged["imdb_id"] == "tt5000000"
+
+
+def test_migration_renames_prefixed_row_with_no_bare_twin():
+    """Episode rows (and unwatched library items) have no bare twin; they must be
+    renamed in place, not lost."""
+    conn = get_connection()
+    upsert_media_item({
+        "item_id": "episode_777",
+        "media_type": "episode",
+        "title": "Some Episode",
+        "year": 2021,
+        "genres": [],
+        "view_count": 0,
+    })
+    conn.close()
+
+    conn = get_connection()
+    _migrate_normalize_media_item_ids(conn)
+    conn.close()
+
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM media_items WHERE item_id IN ('777', 'episode_777')").fetchall()
+    conn.close()
+
+    assert len(rows) == 1
+    assert rows[0]["item_id"] == "777"
+    assert rows[0]["title"] == "Some Episode"
+
+
+def test_migration_is_idempotent():
+    conn = get_connection()
+    upsert_media_item({"item_id": "show_900", "media_type": "show", "title": "Idempotent Show", "view_count": 5})
+    conn.close()
+
+    conn = get_connection()
+    _migrate_normalize_media_item_ids(conn)
+    conn.close()
+
+    # Running it again should be a safe no-op (nothing left to migrate).
+    conn = get_connection()
+    _migrate_normalize_media_item_ids(conn)
+    conn.close()
+
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM media_items WHERE item_id IN ('900', 'show_900')").fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0]["item_id"] == "900"
+
+
+def test_migration_preserves_user_media_join_after_merge():
+    """The per-user watch data (always bare-keyed) must still resolve correctly
+    against the merged media_items row after migration."""
+    upsert_media_item({
+        "item_id": "movie_600",
+        "media_type": "movie",
+        "title": "Joined Movie",
+        "year": 2019,
+        "genres": ["Drama"],
+        "view_count": 10,
+    })
+    upsert_user_media(USER, {"item_id": "600", "media_type": "movie", "title": "Joined Movie", "view_count": 4})
+
+    conn = get_connection()
+    _migrate_normalize_media_item_ids(conn)
+    conn.close()
+
+    items = {i["item_id"]: i for i in get_user_media_items(USER)}
+    assert "600" in items
+    assert items["600"]["genres"] == ["Drama"]
+    assert items["600"]["view_count"] == 4  # per-user tally, unaffected by merge
 
 
 def test_stats_reporting():

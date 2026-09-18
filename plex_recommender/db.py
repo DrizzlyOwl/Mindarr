@@ -184,6 +184,7 @@ def init_db():
     _migrate_discard_global(conn)
     _reconcile_watch_events_migration(conn)
     _migrate_hidden_cards_to_votes(conn)
+    _migrate_normalize_media_item_ids(conn)
 
     conn.close()
 
@@ -341,6 +342,109 @@ def _migrate_hidden_cards_to_votes(conn: sqlite3.Connection):
             logger.info("Migrated %s legacy 'not_interested' hidden cards to user_votes (downvotes, vote = -1).", migrated)
     except sqlite3.OperationalError as e:
         logger.warning("Could not migrate legacy hidden cards to user_votes: %s", e)
+
+
+def _migrate_normalize_media_item_ids(conn: sqlite3.Connection):
+    """One-time & startup reconciliation: normalize media_items.item_id to the bare
+    Plex ratingKey format.
+
+    Historically, the library metadata scan (sync_library_metadata) prefixed item_id
+    with 'movie_'/'show_'/'episode_', while watch-history sync (sync_plex_user_history,
+    sync_tautulli_user_history) and watch_events/user_media always used the bare
+    ratingKey. This created two disconnected media_items rows per physical title.
+    Since user_media and watch_events NEVER use the prefixed form, we standardize on
+    the bare form here: merge each prefixed row into its bare-keyed twin (preferring
+    richer/non-empty data, like upsert_media_item's own conflict logic), or rename it
+    in place if no bare twin exists yet (e.g. unwatched library items).
+
+    Operates on the given connection directly (rather than calling upsert_media_item,
+    which opens its own connection and would deadlock against this one mid-migration).
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT item_id, media_type, title, year, release_date, genres, directors,
+                   writers, actors, summary, user_rating, audience_rating, critic_rating,
+                   imdb_id, tmdb_id, tvdb_id, view_count, last_viewed_at, raw_guids, keywords
+            FROM media_items
+        """)
+        all_rows = {str(r["item_id"]): dict(r) for r in cur.fetchall()}
+    except sqlite3.OperationalError:
+        return
+
+    prefixed_ids = [
+        iid for iid in all_rows
+        if iid.startswith(("movie_", "show_", "episode_"))
+    ]
+    if not prefixed_ids:
+        return
+
+    merged = 0
+    for old_id in prefixed_ids:
+        d = all_rows[old_id]
+        for prefix in ("movie_", "show_", "episode_"):
+            if old_id.startswith(prefix):
+                bare_id = old_id[len(prefix):]
+                break
+        else:
+            continue
+
+        existing = all_rows.get(bare_id)
+        if existing is None:
+            # No bare twin: simply rename this row in place.
+            cur.execute("UPDATE media_items SET item_id = ? WHERE item_id = ?", (bare_id, old_id))
+        else:
+            def _prefer_non_empty(new_val, old_val):
+                if new_val in (None, "", "[]"):
+                    return old_val
+                return new_val
+
+            merged_row = {
+                "media_type": d.get("media_type") or existing.get("media_type"),
+                "title": d.get("title") or existing.get("title"),
+                "year": d.get("year") or existing.get("year"),
+                "release_date": d.get("release_date") or existing.get("release_date"),
+                "genres": _prefer_non_empty(d.get("genres"), existing.get("genres")),
+                "directors": _prefer_non_empty(d.get("directors"), existing.get("directors")),
+                "writers": _prefer_non_empty(d.get("writers"), existing.get("writers")),
+                "actors": _prefer_non_empty(d.get("actors"), existing.get("actors")),
+                "summary": d.get("summary") or existing.get("summary"),
+                "user_rating": d.get("user_rating") if d.get("user_rating") is not None else existing.get("user_rating"),
+                "audience_rating": d.get("audience_rating") if d.get("audience_rating") is not None else existing.get("audience_rating"),
+                "critic_rating": d.get("critic_rating") if d.get("critic_rating") is not None else existing.get("critic_rating"),
+                "imdb_id": d.get("imdb_id") or existing.get("imdb_id"),
+                "tmdb_id": d.get("tmdb_id") or existing.get("tmdb_id"),
+                "tvdb_id": d.get("tvdb_id") or existing.get("tvdb_id"),
+                "view_count": max(int(d.get("view_count") or 0), int(existing.get("view_count") or 0)),
+                "last_viewed_at": d.get("last_viewed_at") or existing.get("last_viewed_at"),
+                "raw_guids": _prefer_non_empty(d.get("raw_guids"), existing.get("raw_guids")),
+                "keywords": _prefer_non_empty(d.get("keywords"), existing.get("keywords")),
+            }
+            cur.execute("""
+                UPDATE media_items SET
+                    media_type = ?, title = ?, year = ?, release_date = ?,
+                    genres = ?, directors = ?, writers = ?, actors = ?, summary = ?,
+                    user_rating = ?, audience_rating = ?, critic_rating = ?,
+                    imdb_id = ?, tmdb_id = ?, tvdb_id = ?, view_count = ?,
+                    last_viewed_at = ?, raw_guids = ?, keywords = ?
+                WHERE item_id = ?
+            """, (
+                merged_row["media_type"], merged_row["title"], merged_row["year"], merged_row["release_date"],
+                merged_row["genres"], merged_row["directors"], merged_row["writers"], merged_row["actors"],
+                merged_row["summary"], merged_row["user_rating"], merged_row["audience_rating"],
+                merged_row["critic_rating"], merged_row["imdb_id"], merged_row["tmdb_id"], merged_row["tvdb_id"],
+                merged_row["view_count"], merged_row["last_viewed_at"], merged_row["raw_guids"],
+                merged_row["keywords"], bare_id,
+            ))
+            cur.execute("DELETE FROM media_items WHERE item_id = ?", (old_id,))
+
+        merged += 1
+
+    conn.commit()
+    if merged:
+        logger.info(
+            "Normalized %s prefixed media_items id(s) to the bare ratingKey format.", merged
+        )
 
 
 def normalize_title(title: str) -> str:
