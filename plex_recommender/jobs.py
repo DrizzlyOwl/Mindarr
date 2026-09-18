@@ -18,6 +18,7 @@ from plex_recommender.sync import (
     discover_and_register_shared_users,
 )
 from plex_recommender.recommender import recommender
+from plex_recommender.poster_cache import sweep_expired_posters, POSTER_TTL_DAYS
 
 logger = logging.getLogger("plex_recommender.jobs")
 
@@ -38,6 +39,12 @@ JOB_DEFINITIONS = {
         "id": "truncate_logs",
         "name": "Truncate Logs",
         "description": "Purges system log events older than the 7-day retention limit.",
+        "default_trigger": "scheduled",
+    },
+    "poster_cleanup": {
+        "id": "poster_cleanup",
+        "name": "Poster Cache Cleanup",
+        "description": f"Deletes cached TMDb posters not accessed within {POSTER_TTL_DAYS} days.",
         "default_trigger": "scheduled",
     },
 }
@@ -359,6 +366,66 @@ class JobManager:
         finally:
             with self._lock:
                 self.running_jobs.pop("truncate_logs", None)
+
+    def run_poster_cleanup(
+        self,
+        trigger: str = "scheduled",
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+    ) -> Dict[str, Any]:
+        """Delete cached TMDb posters not accessed within the TTL window."""
+        with self._lock:
+            if "poster_cleanup" in self.running_jobs:
+                return {
+                    "success": False,
+                    "error": "Poster cleanup job is already in progress.",
+                    "already_running": True,
+                }
+            self.running_jobs["poster_cleanup"] = {
+                "job_type": "poster_cleanup",
+                "trigger": trigger,
+                "started_at": datetime.now().isoformat(),
+                "status": "Scanning poster cache...",
+                "progress": 0.0,
+                "error": None,
+                "job_id": None,
+            }
+
+        job_id = start_job("poster_cleanup", trigger=trigger)
+        with self._lock:
+            if "poster_cleanup" in self.running_jobs:
+                self.running_jobs["poster_cleanup"]["job_id"] = job_id
+
+        logger.info(
+            "Job 'Poster Cache Cleanup' (ID: %s) started [trigger: %s, ttl: %s days]",
+            job_id, trigger, POSTER_TTL_DAYS
+        )
+
+        def _update_progress(msg: str, pct: float):
+            with self._lock:
+                if "poster_cleanup" in self.running_jobs:
+                    self.running_jobs["poster_cleanup"]["status"] = msg
+                    self.running_jobs["poster_cleanup"]["progress"] = pct
+            if progress_callback:
+                progress_callback(msg, pct)
+
+        try:
+            _update_progress(f"Scanning cached posters older than {POSTER_TTL_DAYS} days...", 0.3)
+            result = sweep_expired_posters(ttl_days=POSTER_TTL_DAYS)
+            detail = (
+                f"Deleted {result['deleted']} expired poster(s) "
+                f"({result['bytes_freed']} bytes freed), kept {result['kept']}."
+            )
+            _update_progress(detail, 1.0)
+            finish_job(job_id, "success", detail)
+            logger.info("Job 'Poster Cache Cleanup' (ID: %s) completed successfully: %s", job_id, detail)
+            return {"success": True, "job_id": job_id, "detail": detail, **result}
+        except Exception as e:
+            logger.error(f"Poster cleanup job error: {e}")
+            finish_job(job_id, "failed", str(e))
+            return {"success": False, "job_id": job_id, "error": str(e)}
+        finally:
+            with self._lock:
+                self.running_jobs.pop("poster_cleanup", None)
 
 
 job_manager = JobManager()

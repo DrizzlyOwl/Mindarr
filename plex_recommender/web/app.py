@@ -39,6 +39,7 @@ from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categor
 from plex_recommender.discovery.overseerr import overseerr
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.jobs import job_manager, JOB_DEFINITIONS
+from plex_recommender.poster_cache import get_cached_poster_url
 
 logger = logging.getLogger("plex_recommender.web")
 
@@ -74,6 +75,12 @@ def scheduled_log_cleanup_job():
     """Background scheduled job: truncate logs older than 7 days."""
     logger.info("Starting scheduled log truncation (7-day retention)...")
     job_manager.run_truncate_logs(trigger="scheduled", retention_days=7)
+
+
+def scheduled_poster_cleanup_job():
+    """Background scheduled job: delete cached posters not accessed within the TTL window."""
+    logger.info("Starting scheduled poster cache cleanup...")
+    job_manager.run_poster_cleanup(trigger="scheduled")
 
 
 def get_scheduled_jobs_info():
@@ -119,6 +126,19 @@ def get_scheduled_jobs_info():
         "state": log_st,
     })
 
+    # 4. Poster Cache Cleanup Job
+    poster_job = scheduler.get_job("plex_poster_cleanup_job") if scheduler.running else None
+    next_poster = poster_job.next_run_time.isoformat() if poster_job and poster_job.next_run_time else None
+    poster_st = job_manager.get_job_state("poster_cleanup")
+    jobs_info.append({
+        "id": "poster_cleanup",
+        "name": JOB_DEFINITIONS["poster_cleanup"]["name"],
+        "description": JOB_DEFINITIONS["poster_cleanup"]["description"],
+        "interval_hours": 24,
+        "next_run": next_poster,
+        "state": poster_st,
+    })
+
     return jobs_info
 
 
@@ -153,9 +173,16 @@ async def lifespan(app: FastAPI):
             id="plex_log_cleanup_job",
             replace_existing=True
         )
+        scheduler.add_job(
+            scheduled_poster_cleanup_job,
+            "interval",
+            hours=24,
+            id="plex_poster_cleanup_job",
+            replace_existing=True
+        )
         scheduler.start()
         logger.info(
-            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h, log truncation every 24h)."
+            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h, log truncation every 24h, poster cleanup every 24h)."
         )
     yield
     if scheduler.running:
@@ -251,6 +278,12 @@ def index_page(request: Request):
         return RedirectResponse(url="/login", status_code=303)
     profile = analyzer.analyze(user["user_key"])
     stats = get_stats(user["user_key"])
+
+    low_bw = is_low_bandwidth(request)
+    for item in profile.get("top_movies", []):
+        item["poster_url"] = get_cached_poster_url(item.get("tmdb_id"), "movie", low_bw)
+    for item in profile.get("top_shows", []):
+        item["poster_url"] = get_cached_poster_url(item.get("tmdb_id"), "show", low_bw)
 
     # "Welcome back" caption: only surfaced once, right after login, and only
     # if the user was previously seen more than 24h ago.
