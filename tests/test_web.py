@@ -197,6 +197,29 @@ def test_taste_profile_does_not_show_data_sources_accordion():
         assert "Hey, Alice." in resp.text
 
 
+def test_homepage_shows_top_movies_and_shows_not_director_cast():
+    with TestClient(app) as client:
+        _login(client)
+        upsert_user_media(USER, {
+            "item_id": "m1", "media_type": "movie", "title": "Most Watched Movie",
+            "year": 2021, "genres": ["Science Fiction"], "view_count": 5,
+            "last_viewed_at": "2026-01-01T00:00:00",
+        })
+        upsert_user_media(USER, {
+            "item_id": "s1", "media_type": "show", "title": "Most Watched Show",
+            "year": 2020, "genres": ["Drama"], "view_count": 30,
+            "last_viewed_at": "2026-01-01T00:00:00",
+        })
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "Your Top 10 Movies" in resp.text
+        assert "Your Top 10 TV Shows" in resp.text
+        assert "Most Watched Movie" in resp.text
+        assert "Most Watched Show" in resp.text
+        assert "Favored Directors" not in resp.text
+        assert "Recurring Cast" not in resp.text
+
+
 def test_env_managed_setting_is_locked_and_not_overwritten(monkeypatch):
     from plex_recommender import config as cfg
     from plex_recommender.config import settings as cfg_settings

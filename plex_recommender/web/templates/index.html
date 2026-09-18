@@ -247,50 +247,74 @@
         </div>
     </div>
 
-    <!-- Creators & Trending Keywords Section -->
+    <!-- Top Watched Section -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        <!-- Top Directors -->
+
+        <!-- Top 10 Movies -->
         <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
             <h3 class="text-lg font-bold text-white mb-3 flex items-center space-x-2">
                 <svg class="w-5 h-5 text-amber-400 fill-current" viewBox="0 0 20 20">
-                    <path d="M4 3a2 2 0 100 4 2 2 0 000-4zM10 3a2 2 0 100 4 2 2 0 000-4zM16 3a2 2 0 100 4 2 2 0 000-4zM4 9a2 2 0 100 4 2 2 0 000-4zM10 9a2 2 0 100 4 2 2 0 000-4zM16 9a2 2 0 100 4 2 2 0 000-4zM4 15a2 2 0 100 4 2 2 0 000-4zM10 15a2 2 0 100 4 2 2 0 000-4zM16 15a2 2 0 100 4 2 2 0 000-4z"/>
+                    <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm4-1v10M14 5v10M2 9h4m8 0h4M2 13h4m8 0h4" stroke="currentColor" stroke-width="1" fill="none"/>
+                    <path d="M2 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" opacity="0.15"/>
                 </svg>
-                <span>Favored Directors</span>
+                <span>Your Top 10 Movies</span>
             </h3>
             <div class="divide-y divide-slate-800/60">
-                {% for d in profile.top_directors %}
-                <div class="py-2.5 flex items-center justify-between text-sm">
-                    <span class="font-medium text-slate-200">{{ d.name }}</span>
-                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-amber-400 font-semibold">Affinity {{ d.score }}</span>
+                {% for m in profile.top_movies %}
+                <div class="py-2.5 flex items-center space-x-3 text-sm">
+                    <span class="w-6 shrink-0 text-right text-slate-600 font-black text-base">{{ loop.index }}</span>
+                    {% if not low_bandwidth and m.poster_url %}
+                    <img src="{{ m.poster_url }}" alt="" class="w-10 h-[60px] object-cover rounded-md border border-slate-800 shrink-0" loading="lazy">
+                    {% else %}
+                    <div class="w-10 h-[60px] rounded-md border border-slate-800 bg-slate-800/60 shrink-0 flex items-center justify-center">
+                        <svg class="w-4 h-4 text-slate-600 fill-current" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
+                    </div>
+                    {% endif %}
+                    <div class="min-w-0 flex-1">
+                        <div class="font-medium text-slate-200 truncate">{{ m.title }}</div>
+                        {% if m.year %}<div class="text-xs text-slate-500">{{ m.year }}</div>{% endif %}
+                    </div>
+                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-amber-400 font-semibold whitespace-nowrap">{{ m.view_count }} play{{ 's' if m.view_count != 1 else '' }}</span>
                 </div>
                 {% else %}
-                <div class="text-xs text-slate-500 py-4">No director information extracted yet.</div>
+                <div class="text-xs text-slate-500 py-4">No movies watched yet.</div>
                 {% endfor %}
             </div>
         </div>
 
-        <!-- Top Actors -->
+        <!-- Top 10 TV Shows -->
         <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-lg">
             <h3 class="text-lg font-bold text-white mb-3 flex items-center space-x-2">
                 <svg class="w-5 h-5 text-blue-400 fill-current" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                    <path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v9a2 2 0 01-2 2h-4l1 2H7l1-2H4a2 2 0 01-2-2V5zm2 0v9h12V5H4z" clip-rule="evenodd" />
                 </svg>
-                <span>Recurring Cast</span>
+                <span>Your Top 10 TV Shows</span>
             </h3>
             <div class="divide-y divide-slate-800/60">
-                {% for a in profile.top_actors %}
-                <div class="py-2.5 flex items-center justify-between text-sm">
-                    <span class="font-medium text-slate-200">{{ a.name }}</span>
-                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-blue-400 font-semibold">Affinity {{ a.score }}</span>
+                {% for s in profile.top_shows %}
+                <div class="py-2.5 flex items-center space-x-3 text-sm">
+                    <span class="w-6 shrink-0 text-right text-slate-600 font-black text-base">{{ loop.index }}</span>
+                    {% if not low_bandwidth and s.poster_url %}
+                    <img src="{{ s.poster_url }}" alt="" class="w-10 h-[60px] object-cover rounded-md border border-slate-800 shrink-0" loading="lazy">
+                    {% else %}
+                    <div class="w-10 h-[60px] rounded-md border border-slate-800 bg-slate-800/60 shrink-0 flex items-center justify-center">
+                        <svg class="w-4 h-4 text-slate-600 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v9a2 2 0 01-2 2h-4l1 2H7l1-2H4a2 2 0 01-2-2V5z" clip-rule="evenodd"/></svg>
+                    </div>
+                    {% endif %}
+                    <div class="min-w-0 flex-1">
+                        <div class="font-medium text-slate-200 truncate">{{ s.title }}</div>
+                        {% if s.year %}<div class="text-xs text-slate-500">{{ s.year }}</div>{% endif %}
+                    </div>
+                    <span class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-blue-400 font-semibold whitespace-nowrap">{{ s.view_count }} episode{{ 's' if s.view_count != 1 else '' }}</span>
                 </div>
                 {% else %}
-                <div class="text-xs text-slate-500 py-4">No actor information extracted yet.</div>
+                <div class="text-xs text-slate-500 py-4">No shows watched yet.</div>
                 {% endfor %}
             </div>
         </div>
 
     </div>
+
 
     <!-- Charts Script -->
     <script>
