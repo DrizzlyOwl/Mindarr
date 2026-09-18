@@ -1,6 +1,6 @@
 """Mindarr: watch-history analyzer and unseen content discovery engine."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 from plex_recommender.logs import setup_logging, log_handler, LogHandler
 
