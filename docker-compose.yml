@@ -27,3 +27,5 @@ services:
     volumes:
       # TrueNAS SCALE: Change left path to your dataset, e.g., /mnt/tank/appdata/plex-recommender:/config
       - ./config:/config
+      # Cached TMDb posters (persisted across rebuilds; safe to delete to reclaim disk)
+      - ./config/posters:/app/plex_recommender/web/static/posters
