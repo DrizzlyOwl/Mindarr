@@ -114,6 +114,51 @@ def test_api_recommendations_requires_auth():
         assert resp.status_code == 401
 
 
+def test_api_recommendations_caches_posters_locally(monkeypatch, tmp_path):
+    """Recommendation cards must serve locally-cached poster images instead of
+    hotlinking TMDb, without an extra TMDb detail API call (source URL already
+    known from the discovery response)."""
+    from plex_recommender.web import app as app_module
+    from plex_recommender import poster_cache
+
+    monkeypatch.setattr(poster_cache, "CACHE_DIR", tmp_path / "posters")
+
+    fake_results = {
+        "success": True,
+        "recommendations": [
+            {
+                "tmdb_id": "9999",
+                "media_type": "movie",
+                "title": "Cache Me",
+                "year": 2021,
+                "poster_url": "https://image.tmdb.org/t/p/w500/original.jpg",
+            }
+        ],
+        "from_cache": False,
+        "is_complete": True,
+    }
+    monkeypatch.setattr(app_module.recommender, "get_recommendations", lambda **kwargs: fake_results)
+
+    class FakeResp:
+        content = b"fake-poster-bytes"
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(poster_cache.requests, "get", lambda *a, **k: FakeResp())
+
+    with TestClient(app) as client:
+        _login(client)
+        upsert_user_media(USER, {
+            "item_id": "555", "media_type": "movie", "title": "Some Movie",
+            "year": 2020, "genres": ["Sci-Fi"], "tmdb_id": "278",
+        })
+        resp = client.get("/api/recommendations?type=movie")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "/static/posters/movie_9999.jpg" in data["html"]
+        assert "image.tmdb.org" not in data["html"]
+
+
 
 def test_settings_warns_on_tautulli_server_mismatch(monkeypatch):
     from plex_recommender.web import app as webapp

@@ -36,10 +36,29 @@ def touch_poster(path: Path) -> None:
         logger.warning(f"Could not refresh atime for cached poster {path}: {e}")
 
 
+def _download_and_cache(path: Path, remote_image_url: str) -> bool:
+    """Download an image from a fully-qualified URL and write it to the cache
+    path. Returns True on success. Never raises."""
+    try:
+        resp = requests.get(remote_image_url, timeout=10)
+        resp.raise_for_status()
+        path.write_bytes(resp.content)
+        return True
+    except Exception as e:
+        logger.debug(f"Could not download poster from {remote_image_url}: {e}")
+        return False
+
+
 def get_cached_poster_url(tmdb_id, media_type: str, low_bandwidth: bool = False) -> Optional[str]:
     """Return a local /static/posters/... URL for the given TMDb item, downloading
     and caching it on first use. Returns None if low-bandwidth mode is enabled,
     no tmdb_id is known, or the poster could not be fetched. Never raises.
+
+    Use this when only a tmdb_id is known (e.g. a watched item pulled from the
+    local DB) and a TMDb detail lookup is needed to discover the poster_path.
+    If the source poster URL is already known (e.g. from a TMDb discovery/search
+    response), prefer get_cached_poster_url_from_source instead to avoid the
+    extra detail API call.
     """
     if low_bandwidth or not tmdb_id:
         return None
@@ -58,14 +77,37 @@ def get_cached_poster_url(tmdb_id, media_type: str, low_bandwidth: bool = False)
             return None
 
         image_url = f"{TMDB_IMAGE_BASE}{poster_path}"
-        resp = requests.get(image_url, timeout=10)
-        resp.raise_for_status()
-
-        path.write_bytes(resp.content)
-        return f"/static/posters/{path.name}"
+        if _download_and_cache(path, image_url):
+            return f"/static/posters/{path.name}"
+        return None
     except Exception as e:
         logger.debug(f"Could not cache poster for {media_type} tmdb_id={tmdb_id}: {e}")
         return None
+
+
+def get_cached_poster_url_from_source(
+    tmdb_id, media_type: str, source_poster_url: Optional[str], low_bandwidth: bool = False
+) -> Optional[str]:
+    """Like get_cached_poster_url, but for callers that already have a
+    fully-qualified TMDb poster URL on hand (e.g. recommendations/discovery
+    results), skipping the extra TMDb detail API call entirely.
+
+    Returns the local cached URL on success. On cache-miss download failure,
+    falls back to the original source_poster_url (graceful degradation, so a
+    transient network hiccup doesn't hide a poster the caller already had).
+    Returns None only if low-bandwidth mode is on or no tmdb_id/source URL exists.
+    """
+    if low_bandwidth or not tmdb_id or not source_poster_url:
+        return None
+
+    path = _cache_path(tmdb_id, media_type)
+    if path.exists():
+        touch_poster(path)
+        return f"/static/posters/{path.name}"
+
+    if _download_and_cache(path, source_poster_url):
+        return f"/static/posters/{path.name}"
+    return source_poster_url
 
 
 def sweep_expired_posters(ttl_days: int = POSTER_TTL_DAYS) -> dict:

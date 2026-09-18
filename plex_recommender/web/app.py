@@ -39,7 +39,7 @@ from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categor
 from plex_recommender.discovery.overseerr import overseerr
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.jobs import job_manager, JOB_DEFINITIONS
-from plex_recommender.poster_cache import get_cached_poster_url
+from plex_recommender.poster_cache import get_cached_poster_url, get_cached_poster_url_from_source
 
 logger = logging.getLogger("plex_recommender.web")
 
@@ -501,6 +501,14 @@ def api_recommendations(
             logger.error(f"Recommendation generation error: {e}")
             error_msg = str(e)
 
+    low_bw = is_low_bandwidth(request)
+    for item in results.get("recommendations", []):
+        cached = get_cached_poster_url_from_source(
+            item.get("tmdb_id"), item.get("media_type"), item.get("poster_url"), low_bw
+        )
+        if cached:
+            item["poster_url"] = cached
+
     user_counts = get_user_action_counts(user["user_key"])
     html = templates.get_template("_recommendation_cards.html").render(
         {
@@ -508,7 +516,7 @@ def api_recommendations(
             "results": results,
             "error_msg": error_msg,
             "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
-            "low_bandwidth": is_low_bandwidth(request),
+            "low_bandwidth": low_bw,
             "user_votes": get_user_votes(user["user_key"]),
             "pool_stats": user_counts,
         }
