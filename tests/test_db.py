@@ -14,6 +14,7 @@ from plex_recommender.db import (
     delete_user,
     get_user,
     get_watch_events,
+    get_top_watched,
 )
 
 USER = "u1"
@@ -122,6 +123,37 @@ def test_per_user_rating_override_and_preserve():
     upsert_user_media(USER, {**item, "user_rating": None})
     loaded = {i["item_id"]: i for i in get_user_media_items(USER)}["movie_201"]
     assert loaded["user_rating"] == 9.5
+
+
+def test_get_top_watched_orders_and_filters():
+    upsert_user_media(USER, {
+        "item_id": "movie_301", "media_type": "movie", "title": "Low Watch",
+        "year": 2015, "tmdb_id": "1", "view_count": 1
+    })
+    upsert_user_media(USER, {
+        "item_id": "movie_302", "media_type": "movie", "title": "High Watch",
+        "year": 2018, "tmdb_id": "2", "view_count": 5
+    })
+    upsert_user_media(USER, {
+        "item_id": "show_301", "media_type": "show", "title": "Binged Show",
+        "year": 2019, "tmdb_id": "4", "view_count": 42
+    })
+
+    top_movies = get_top_watched(USER, "movie", limit=10)
+    assert [m["item_id"] for m in top_movies] == ["movie_302", "movie_301"]
+    assert all(m["view_count"] > 0 for m in top_movies)
+
+    top_movies_limited = get_top_watched(USER, "movie", limit=1)
+    assert len(top_movies_limited) == 1
+    assert top_movies_limited[0]["item_id"] == "movie_302"
+
+    top_shows = get_top_watched(USER, "show", limit=10)
+    assert len(top_shows) == 1
+    assert top_shows[0]["item_id"] == "show_301"
+    assert top_shows[0]["view_count"] == 42
+
+    # Items with zero view_count are excluded from the ranking entirely.
+    assert get_top_watched("no_such_user", "movie", limit=10) == []
 
 
 def test_stats_reporting():

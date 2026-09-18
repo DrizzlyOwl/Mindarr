@@ -995,6 +995,29 @@ def get_stats(user_key: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_top_watched(user_key: str, media_type: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Return the user's most-watched items of a given media_type (movie/show),
+    ranked by view_count desc, then most-recently-viewed as a tiebreaker.
+
+    For shows, view_count reflects total episodes watched (viewedLeafCount rollup),
+    consistent with the analyzer's episode-to-show attribution.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT m.item_id, m.title, m.year, m.tmdb_id, m.imdb_id, m.media_type,
+               um.view_count, um.last_viewed_at
+        FROM user_media um
+        JOIN media_items m ON m.item_id = um.item_id
+        WHERE um.user_key = ? AND m.media_type = ? AND um.view_count > 0
+        ORDER BY um.view_count DESC, um.last_viewed_at DESC
+        LIMIT ?
+    """, (str(user_key), media_type, limit))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+
 def create_or_update_user(user: Dict[str, Any]) -> None:
     """Insert or update a user record."""
     conn = get_connection()
