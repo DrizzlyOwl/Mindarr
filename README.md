@@ -39,40 +39,66 @@ Deployable as a **TrueNAS SCALE Custom App** or standalone Docker container. Web
 3. Paste the following Compose YAML:
 
 ```yaml
-version: "3.8"
-
 services:
   mindarr:
     container_name: mindarr
-    image: mindarr:latest
+    image: ghcr.io/drizzlyowl/mindarr:latest
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
       - TZ=Europe/London
-      - PLEX_URL=https://10.255.10.30:32400
-      - OVERSEERR_URL=http://10.255.10.30:5055
-      - TAUTULLI_URL=            # Optional: enables per-user history enrichment
       - CONFIG_DIR=/config
       - PORT=8080
       - HOST=0.0.0.0
       - AUTO_SYNC_HOURS=24
+      # Optional: pre-fill instead of using the Settings UI wizard.
+      # Values set here are "locked" (read-only) in Settings.
+      # - PLEX_URL=https://10.255.10.30:32400
+      # - PLEX_TOKEN=
+      # - TMDB_API_KEY=
+      # - OVERSEERR_URL=http://10.255.10.30:5055
+      # - OVERSEERR_API_KEY=
+      # - TAUTULLI_URL=
+      # - TAUTULLI_API_KEY=
     volumes:
+      # TrueNAS SCALE: point this at your dataset, e.g. /mnt/tank/appdata/mindarr
       - /mnt/tank/appdata/mindarr:/config
+      # Cached TMDb posters (persisted across upgrades; safe to delete to reclaim disk)
+      - /mnt/tank/appdata/mindarr/posters:/app/plex_recommender/web/static/posters
 ```
-*(Replace the storage path with your dataset.)*
+*(Replace the storage paths with your dataset.)*
 
 4. Click **Install**, then open `http://<truenas-ip>:8080`.
+5. Sign in with Plex — the first account to sign in becomes the Administrator and is
+   walked through a first-run setup wizard (Plex → TMDb → optional Overseerr/Tautulli →
+   initial sync).
+
+> No env vars are strictly required at deploy time: everything above can instead be
+> configured from the web UI after first login. Only pre-fill environment variables if you
+> want them locked and managed outside the Settings page (e.g. via a secrets manager).
 
 ---
 
 ## Running (Docker / local)
 
-```bash
-# Docker
-docker compose up
+A ready-to-use `docker-compose.yml` is included in this repo (builds the image locally
+from the `Dockerfile` and mounts `./config` for persistent data + `./config/posters` for
+the poster cache). All environment variables in it have sane defaults, so you can run it
+as-is and configure Plex/TMDb/Overseerr/Tautulli from the Settings UI after first login —
+or export overrides (e.g. `PLEX_URL`, `TMDB_API_KEY`) before running to pre-fill them:
 
-# Local
+```bash
+# Docker (build from source)
+docker compose up -d --build
+
+# Pull the published image instead of building locally
+docker run -d --name mindarr -p 8080:8080 \
+  -v ./config:/config \
+  -v ./config/posters:/app/plex_recommender/web/static/posters \
+  ghcr.io/drizzlyowl/mindarr:latest
+
+# Local (no Docker)
 uvicorn plex_recommender.web.app:app --host 0.0.0.0 --port 8080
 # or
 python -m plex_recommender
