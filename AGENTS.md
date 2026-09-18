@@ -31,7 +31,7 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - `plex_recommender/discovery/` — `tmdb.py`, `overseerr.py`, `tautulli.py`
 - `plex_recommender/web/app.py` — routes, sessions, scheduler lifespan, sync concurrency guard
 - `plex_recommender/web/templates/` — `layout.html`, `login.html`, `index.html`,
-  `recommendations.html`, `settings.html`, `jobs.html`, `system.html`
+  `recommendations.html`, `settings.html`, `jobs.html`, `system.html`, `welcome.html`
 - `plex_recommender/__main__.py` — `python -m plex_recommender` launches uvicorn
 
 ## Conventions
@@ -61,6 +61,36 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - **Scoping:** watch data, taste profile, seen-index, and recommendations cache are
   **per `user_key`** (Plex.tv account id). Rich media metadata is shared in `media_items`
   (joined by `item_id`); the per-user relation lives in `user_media`.
+
+## Onboarding (`/welcome`, first-visit tour)
+- `users.onboarded_at` / `users.last_seen_at` (nullable TIMESTAMPs) track onboarding
+  completion and login recency. `db.touch_last_seen(user_key)` is called once per login
+  (in the `/api/auth/poll` callback, both admin and shared-user branches) and returns the
+  *previous* `last_seen_at`, which is stashed in the session as `previous_last_seen` for a
+  one-time "Welcome back" caption on the next dashboard render (only shown if > 24h old).
+  `db.mark_onboarded(user_key)` is idempotent (no-ops if already set).
+- **Admin first-run wizard (`GET /welcome`, `POST /welcome/complete`):** an `onboarding_gate`
+  HTTP middleware in `web/app.py` redirects an admin to `/welcome` whenever
+  `not onboarded_at` and setup is incomplete (`admin_setup_incomplete()`: missing
+  `TMDB_API_KEY`, missing `PLEX_MACHINE_ID`, or no `last_sync_time`). The gate allowlists
+  `/welcome`, `/logout`, `/login`, `/api/*`, `/static/*` to avoid redirect loops. The wizard
+  is a client-side stepper (Plex → TMDb → optional Overseerr/Tautulli → initial sync) that
+  saves each step by POSTing the relevant fields to the existing `/api/settings/save`
+  endpoint (no new save endpoints) — unlisted `Form(None)` fields are treated as "no
+  change" by that handler, so partial per-step submissions are safe. "Skip setup for now"
+  and the final "Take me to my recommendations" both call `POST /welcome/complete`, which
+  marks the current user onboarded unconditionally.
+  - **Middleware ordering matters:** `SessionMiddleware` must be registered (via
+    `app.add_middleware`) *after* `onboarding_gate` is registered (via
+    `@app.middleware("http")`), since the last-registered middleware becomes outermost and
+    needs to run first to populate `request.session` before the gate reads it.
+- **First-visit welcome tour (shared users only):** a dismissible 3-slide modal in
+  `layout.html`, gated by `show_first_visit_tour` (`True` when the user is non-admin and
+  `onboarded_at IS NULL`). Admins never see it — the wizard is their tour. Dismissing
+  (click, `Esc`, or finishing) fires `POST /welcome/complete` via `fetch`.
+- Non-admin users with no synced history yet see a "your picks are being prepared" waiting
+  state on `/` instead of the admin's "Connect Plex Server" empty state, with a live sync
+  progress bar (polls `/api/sync/status`) or a 60s soft-poll if no sync is running.
 
 ## Watch history & sync (`sync.py`)
 - **Two sources per user, both optional/graceful:**
@@ -105,8 +135,9 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
   (`clear_user_data`, keeps the account, resets watch data + recs).
 
 ## Database tables
-`users`, `user_media`, `media_items`, `watch_events` (has `source`), `seen_identifiers`
-(PK includes `user_key`), `recommendations_cache`, `job_history`, `app_settings`.
+`users` (has `onboarded_at`, `last_seen_at`), `user_media`, `media_items`, `watch_events`
+(has `source`), `seen_identifiers` (PK includes `user_key`), `recommendations_cache`,
+`job_history`, `app_settings`.
 `_migrate_add_columns()` handles additive column migrations (e.g. `watch_events.source`).
 
 ## Recommendations cache

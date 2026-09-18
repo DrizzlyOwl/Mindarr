@@ -4,7 +4,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, create_or_update_user
+from plex_recommender.db import init_db, create_or_update_user, mark_onboarded
 from plex_recommender.logs import LogHandler, log_handler
 from plex_recommender.web.app import app
 
@@ -26,6 +26,7 @@ def setup_test_db(tmp_path, monkeypatch):
         "email": "log@test.local",
         "is_admin": True,
     })
+    mark_onboarded(USER)
     yield
 
 

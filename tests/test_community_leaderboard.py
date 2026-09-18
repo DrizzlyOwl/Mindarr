@@ -332,6 +332,7 @@ def test_web_community_leaderboard_rendering():
             "email": "ash@example.com",
             "is_admin": True,
             "thumb": None,
+            "onboarded_at": "2024-01-01T00:00:00",
         }
 
         mock_community_data = {
@@ -487,6 +488,7 @@ def test_admin_real_username_tooltip_visibility():
         "username": "admin_ash",
         "title": "Admin Ashley",
         "is_admin": True,
+        "onboarded_at": "2024-01-01T00:00:00",
     }
     non_admin_user = {
         "user_key": "u_regular",

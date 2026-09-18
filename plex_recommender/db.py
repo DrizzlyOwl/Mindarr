@@ -206,6 +206,14 @@ def _migrate_add_columns(conn: sqlite3.Connection):
         cur.execute("ALTER TABLE user_media ADD COLUMN user_rating REAL")
         conn.commit()
 
+    user_cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
+    if "onboarded_at" not in user_cols:
+        cur.execute("ALTER TABLE users ADD COLUMN onboarded_at TIMESTAMP")
+        conn.commit()
+    if "last_seen_at" not in user_cols:
+        cur.execute("ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP")
+        conn.commit()
+
 
 def _migrate_discard_global(conn: sqlite3.Connection):
     """One-time migration: discard pre-multi-user global watch data.
@@ -1051,6 +1059,39 @@ def get_user(user_key: str) -> Optional[Dict[str, Any]]:
     row = cur.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def touch_last_seen(user_key: str) -> Optional[str]:
+    """Update a user's last_seen_at to now and return the *previous* value.
+
+    Intended to be called once per login, right after the session is created,
+    so callers can surface a "welcome back" message using the value that was
+    current before this call overwrote it.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT last_seen_at FROM users WHERE user_key = ?", (str(user_key),))
+    row = cur.fetchone()
+    previous = row["last_seen_at"] if row else None
+    cur.execute(
+        "UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE user_key = ?",
+        (str(user_key),),
+    )
+    conn.commit()
+    conn.close()
+    return previous
+
+
+def mark_onboarded(user_key: str) -> None:
+    """Mark a user as having completed onboarding (idempotent)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET onboarded_at = CURRENT_TIMESTAMP WHERE user_key = ? AND onboarded_at IS NULL",
+        (str(user_key),),
+    )
+    conn.commit()
+    conn.close()
 
 
 def get_admin() -> Optional[Dict[str, Any]]:

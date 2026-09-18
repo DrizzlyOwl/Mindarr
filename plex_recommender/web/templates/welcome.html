@@ -1,0 +1,356 @@
+{% extends "layout.html" %}
+
+{% block title %}Welcome{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6" id="wizard-root">
+
+    <div class="text-center space-y-2 pt-2">
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Welcome to Mindarr, {{ first_name }}.</h1>
+        <p class="text-sm text-slate-400 max-w-lg mx-auto">Let's get your server connected. This takes about a minute — you can skip anything optional and configure it later in Settings.</p>
+    </div>
+
+    <!-- Step indicator -->
+    <div class="flex items-center justify-center space-x-2">
+        {% for n in range(1, 6) %}
+        <div class="step-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition" data-step="{{ n }}"></div>
+        {% endfor %}
+    </div>
+
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl min-h-[320px]">
+
+        <!-- Step 1: Intro -->
+        <div class="wizard-step space-y-5" data-step="1">
+            <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+                <svg class="w-7 h-7 fill-current" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </div>
+            <div class="text-center space-y-2">
+                <h2 class="text-lg font-bold text-white">You're the Administrator</h2>
+                <p class="text-sm text-slate-400 max-w-md mx-auto">
+                    As the first person to sign in, your Plex account owns this Mindarr instance. You'll configure the
+                    integrations below once — after that, anyone you've shared your Plex server with can sign in and get
+                    their own private taste profile and recommendations.
+                </p>
+            </div>
+            <div class="flex justify-center pt-2">
+                <button type="button" onclick="wizardNext()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                    Let's set things up
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Plex -->
+        <div class="wizard-step space-y-5 hidden" data-step="2">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-bold text-white">Plex Media Server</h2>
+                <span id="plex-status-badge" class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold {% if plex_connected %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/30{% else %}bg-rose-500/10 text-rose-400 border border-rose-500/30{% endif %}">
+                    <span class="w-2 h-2 rounded-full {% if plex_connected %}bg-emerald-400{% else %}bg-rose-400{% endif %}"></span>
+                    <span id="plex-status-text">{{ plex_msg if plex_connected else 'Not Connected' }}</span>
+                </span>
+            </div>
+            <p class="text-xs text-slate-400">Your Plex account is already authorized. Confirm the server URL Mindarr should connect to for library scans and watch history.</p>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">Plex Server URL</label>
+                <input type="text" id="plex_url" value="{{ settings.plex_url }}" {% if env_locked.PLEX_URL %}disabled{% endif %}
+                       class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                {% if env_locked.PLEX_URL %}<span class="text-[11px] text-sky-400">Managed by env var PLEX_URL</span>{% else %}<span class="text-[11px] text-slate-500">e.g., https://10.0.0.5:32400</span>{% endif %}
+            </div>
+
+            <div class="flex justify-between pt-2">
+                <button type="button" onclick="wizardBack()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold text-xs transition">Back</button>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="savePlex()" id="plex-save-btn" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-semibold text-xs transition">Save &amp; Test</button>
+                    <button type="button" onclick="wizardNext()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">Continue</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: TMDb -->
+        <div class="wizard-step space-y-5 hidden" data-step="3">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-bold text-white">The Movie Database (TMDb)</h2>
+                <a href="https://www.themoviedb.org/settings/api" target="_blank" class="text-xs text-amber-400 hover:underline">Get Free Key &rarr;</a>
+            </div>
+            <p class="text-xs text-slate-400">Required to discover unseen movies &amp; shows and cross-reference IMDb links. Free to obtain.</p>
+
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">TMDb API Key</label>
+                <input type="password" id="tmdb_api_key" value="{{ settings.tmdb_api_key or '' }}" {% if env_locked.TMDB_API_KEY %}disabled{% endif %}
+                       placeholder="Enter TMDb API Key or Bearer Token"
+                       class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                {% if env_locked.TMDB_API_KEY %}<span class="text-[11px] text-sky-400">Managed by env var TMDB_API_KEY</span>{% endif %}
+                <p id="tmdb-status" class="text-[11px] mt-1.5 {% if settings.tmdb_api_key %}text-emerald-400{% else %}text-slate-500{% endif %}">
+                    {% if settings.tmdb_api_key %}Key configured.{% else %}Not yet configured — required to continue.{% endif %}
+                </p>
+            </div>
+
+            <div class="flex justify-between pt-2">
+                <button type="button" onclick="wizardBack()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold text-xs transition">Back</button>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="saveTmdb()" id="tmdb-save-btn" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-semibold text-xs transition">Save</button>
+                    <button type="button" onclick="wizardNext()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">Continue</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Optional integrations -->
+        <div class="wizard-step space-y-6 hidden" data-step="4">
+            <div>
+                <h2 class="text-lg font-bold text-white">Optional Integrations</h2>
+                <p class="text-xs text-slate-400 mt-1">Both are optional and can be configured later in Settings.</p>
+            </div>
+
+            <div class="border border-slate-800 rounded-xl p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-bold text-white">Overseerr</h3>
+                    <span id="overseerr-status-badge" class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium {% if overseerr_connected %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/30{% else %}bg-slate-800 text-slate-400 border border-slate-700{% endif %}">
+                        <span id="overseerr-status-text">{{ overseerr_msg }}</span>
+                    </span>
+                </div>
+                <p class="text-[11px] text-slate-400">Enables 1-click media requests directly from recommendation cards.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="text" id="overseerr_url" value="{{ settings.overseerr_url }}" {% if env_locked.OVERSEERR_URL %}disabled{% endif %} placeholder="Overseerr URL"
+                           class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                    <input type="password" id="overseerr_api_key" value="{{ settings.overseerr_api_key or '' }}" {% if env_locked.OVERSEERR_API_KEY %}disabled{% endif %} placeholder="API Key"
+                           class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" onclick="saveOverseerr()" id="overseerr-save-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-400 font-semibold text-xs transition">Save &amp; Test</button>
+                </div>
+            </div>
+
+            <div class="border border-slate-800 rounded-xl p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-bold text-white">Tautulli</h3>
+                    <span id="tautulli-status-badge" class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium {% if tautulli_connected %}bg-emerald-500/10 text-emerald-400 border border-emerald-500/30{% else %}bg-slate-800 text-slate-400 border border-slate-700{% endif %}">
+                        <span id="tautulli-status-text">{{ tautulli_msg }}</span>
+                    </span>
+                </div>
+                <p class="text-[11px] text-slate-400">Optional watch-history enrichment. Leave blank if you don't run Tautulli.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="text" id="tautulli_url" value="{{ settings.tautulli_url }}" {% if env_locked.TAUTULLI_URL %}disabled{% endif %} placeholder="Tautulli URL"
+                           class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-orange-500 focus:border-orange-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                    <input type="password" id="tautulli_api_key" value="{{ settings.tautulli_api_key or '' }}" {% if env_locked.TAUTULLI_API_KEY %}disabled{% endif %} placeholder="API Key"
+                           class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-orange-500 focus:border-orange-500 font-mono disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-900">
+                </div>
+                <div class="flex justify-end">
+                    <button type="button" onclick="saveTautulli()" id="tautulli-save-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-orange-400 font-semibold text-xs transition">Save &amp; Test</button>
+                </div>
+            </div>
+
+            <div class="flex justify-between pt-2">
+                <button type="button" onclick="wizardBack()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold text-xs transition">Back</button>
+                <button type="button" onclick="wizardNext()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition">Continue</button>
+            </div>
+        </div>
+
+        <!-- Step 5: Initial sync -->
+        <div class="wizard-step space-y-5 hidden" data-step="5">
+            <div class="text-center space-y-2">
+                <h2 class="text-lg font-bold text-white">Run Your First Sync</h2>
+                <p class="text-sm text-slate-400 max-w-md mx-auto">
+                    This scans your Plex library and watch history to build everyone's taste profile.
+                    It can take a few minutes on a large library.
+                </p>
+            </div>
+
+            <div id="wizard-sync-idle" class="flex justify-center">
+                <button type="button" onclick="startWizardSync()" id="wizard-sync-btn" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                    Run first sync now
+                </button>
+            </div>
+
+            <div id="wizard-sync-progress" class="hidden space-y-2 max-w-md mx-auto">
+                <div class="flex items-center justify-between text-xs">
+                    <span id="wizard-sync-status" class="text-slate-300 font-medium">Starting sync...</span>
+                    <span id="wizard-sync-pct" class="text-amber-400 font-mono font-bold">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div id="wizard-sync-bar" class="bg-gradient-to-r from-amber-500 to-yellow-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div id="wizard-sync-done" class="hidden text-center space-y-3">
+                <p class="text-sm text-emerald-400 font-semibold">Sync complete — your taste profile is ready.</p>
+                <button type="button" onclick="finishWizard()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                    Take me to my recommendations
+                </button>
+            </div>
+
+            <div class="flex items-center justify-between pt-4 border-t border-slate-800">
+                <button type="button" onclick="wizardBack()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold text-xs transition">Back</button>
+                <button type="button" onclick="finishWizard()" class="text-xs text-slate-400 hover:text-white underline">Skip for now, take me to the dashboard</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="text-center">
+        <button type="button" onclick="finishWizard()" class="text-xs text-slate-500 hover:text-slate-300 underline">Skip setup for now</button>
+    </div>
+</div>
+
+<script>
+    let currentStep = 1;
+    const totalSteps = 5;
+
+    function renderStep() {
+        document.querySelectorAll('.wizard-step').forEach(el => {
+            el.classList.toggle('hidden', parseInt(el.dataset.step) !== currentStep);
+        });
+        document.querySelectorAll('.step-dot').forEach(el => {
+            const n = parseInt(el.dataset.step);
+            el.classList.toggle('bg-amber-500', n <= currentStep);
+            el.classList.toggle('bg-slate-700', n > currentStep);
+        });
+    }
+
+    function wizardNext() {
+        if (currentStep < totalSteps) {
+            currentStep += 1;
+            renderStep();
+        }
+    }
+
+    function wizardBack() {
+        if (currentStep > 1) {
+            currentStep -= 1;
+            renderStep();
+        }
+    }
+
+    async function saveSettingsFields(fields) {
+        const form = new FormData();
+        Object.entries(fields).forEach(([k, v]) => {
+            if (v !== null && v !== undefined) form.append(k, v);
+        });
+        try {
+            await fetch('/api/settings/save', { method: 'POST', body: form });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function savePlex() {
+        const btn = document.getElementById('plex-save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Testing...';
+        const url = document.getElementById('plex_url').value;
+        await saveSettingsFields({ plex_url: url });
+        try {
+            const res = await fetch('/api/plex/test');
+            const data = await res.json();
+            const badge = document.getElementById('plex-status-badge');
+            const text = document.getElementById('plex-status-text');
+            text.textContent = data.success ? data.message : (data.message || 'Not Connected');
+            badge.className = 'inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold ' +
+                (data.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border border-rose-500/30');
+        } catch (e) { /* ignore */ }
+        btn.disabled = false;
+        btn.textContent = 'Save & Test';
+    }
+
+    async function saveTmdb() {
+        const btn = document.getElementById('tmdb-save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+        const key = document.getElementById('tmdb_api_key').value;
+        await saveSettingsFields({ tmdb_api_key: key });
+        const status = document.getElementById('tmdb-status');
+        if (key && key.trim()) {
+            status.textContent = 'Key saved.';
+            status.className = 'text-[11px] mt-1.5 text-emerald-400';
+        }
+        btn.disabled = false;
+        btn.textContent = 'Save';
+    }
+
+    async function saveOverseerr() {
+        const btn = document.getElementById('overseerr-save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Testing...';
+        await saveSettingsFields({
+            overseerr_url: document.getElementById('overseerr_url').value,
+            overseerr_api_key: document.getElementById('overseerr_api_key').value,
+        });
+        try {
+            const res = await fetch('/api/overseerr/test');
+            const data = await res.json();
+            const badge = document.getElementById('overseerr-status-badge');
+            const text = document.getElementById('overseerr-status-text');
+            text.textContent = data.message;
+            badge.className = 'inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ' +
+                (data.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700');
+        } catch (e) { /* ignore */ }
+        btn.disabled = false;
+        btn.textContent = 'Save & Test';
+    }
+
+    async function saveTautulli() {
+        const btn = document.getElementById('tautulli-save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Testing...';
+        await saveSettingsFields({
+            tautulli_url: document.getElementById('tautulli_url').value,
+            tautulli_api_key: document.getElementById('tautulli_api_key').value,
+        });
+        try {
+            const res = await fetch('/api/tautulli/test');
+            const data = await res.json();
+            const badge = document.getElementById('tautulli-status-badge');
+            const text = document.getElementById('tautulli-status-text');
+            text.textContent = data.message;
+            badge.className = 'inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ' +
+                (data.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700');
+        } catch (e) { /* ignore */ }
+        btn.disabled = false;
+        btn.textContent = 'Save & Test';
+    }
+
+    let wizardSyncPoller = null;
+
+    async function startWizardSync() {
+        document.getElementById('wizard-sync-idle').classList.add('hidden');
+        document.getElementById('wizard-sync-progress').classList.remove('hidden');
+        try {
+            const res = await fetch('/api/sync', { method: 'POST' });
+            if (res.status === 409) {
+                // Already syncing (e.g. background scheduler) — just start polling.
+            }
+        } catch (e) { /* ignore, still poll */ }
+        pollWizardSync();
+    }
+
+    function pollWizardSync() {
+        wizardSyncPoller = setInterval(async () => {
+            try {
+                const res = await fetch('/api/sync/status');
+                const data = await res.json();
+                if (data.is_syncing) {
+                    const pct = Math.min(100, Math.max(0, parseFloat(data.progress) || 0));
+                    document.getElementById('wizard-sync-status').textContent = data.status || 'Working...';
+                    document.getElementById('wizard-sync-pct').textContent = Math.round(pct) + '%';
+                    document.getElementById('wizard-sync-bar').style.width = pct + '%';
+                } else {
+                    clearInterval(wizardSyncPoller);
+                    document.getElementById('wizard-sync-progress').classList.add('hidden');
+                    document.getElementById('wizard-sync-done').classList.remove('hidden');
+                }
+            } catch (e) {
+                clearInterval(wizardSyncPoller);
+            }
+        }, 1000);
+    }
+
+    async function finishWizard() {
+        try {
+            await fetch('/welcome/complete', { method: 'POST' });
+        } catch (e) { /* ignore */ }
+        window.location.href = '/recommendations';
+    }
+
+    renderStep();
+</script>
+{% endblock %}

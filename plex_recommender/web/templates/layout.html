@@ -315,6 +315,78 @@
     <!-- Toast container -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-[100] flex flex-col items-end space-y-2"></div>
 
+    {% if show_first_visit_tour %}
+    <!-- First-visit welcome tour (shared users only, shown once) -->
+    <div id="first-visit-modal" class="fixed inset-0 z-[110] flex items-center justify-center px-4 bg-black/70 backdrop-blur-sm">
+        <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5">
+            <div id="tour-slide-1" class="tour-slide space-y-3">
+                <div class="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </div>
+                <h2 class="text-lg font-bold text-white">Welcome to Mindarr{% if first_name %}, {{ first_name }}{% endif %}.</h2>
+                <p class="text-sm text-slate-400">Mindarr looks at what you've watched on Plex and finds movies &amp; shows you haven't seen yet, tailored to your taste.</p>
+            </div>
+            <div id="tour-slide-2" class="tour-slide space-y-3 hidden">
+                <div class="w-12 h-12 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <svg class="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M10 2a1 1 0 01.894.553l1.902 3.86 4.26.62a1 1 0 01.554 1.705l-3.083 3.005.728 4.243a1 1 0 01-1.451 1.054L10 15.98l-3.808 2.002a1 1 0 01-1.451-1.054l.728-4.243L2.386 8.68a1 1 0 01.554-1.705l4.26-.62 1.902-3.86A1 1 0 0110 2z"/></svg>
+                </div>
+                <h2 class="text-lg font-bold text-white">Your taste profile is private to you</h2>
+                <p class="text-sm text-slate-400">Genres, themes, favorite directors &amp; actors are scored from your own watch history, weighted so recent viewing matters more. No one else's recommendations affect yours.</p>
+            </div>
+            {% if has_overseerr %}
+            <div id="tour-slide-3" class="tour-slide space-y-3 hidden">
+                <div class="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <svg class="w-6 h-6 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>
+                </div>
+                <h2 class="text-lg font-bold text-white">Request titles in one click</h2>
+                <p class="text-sm text-slate-400">See something you want on Plex? Request it directly from a recommendation card — it's sent straight to Overseerr.</p>
+            </div>
+            {% endif %}
+
+            <div class="flex items-center justify-between pt-2">
+                <div class="flex items-center space-x-1.5">
+                    <span class="tour-dot w-2 h-2 rounded-full bg-amber-500" data-slide="1"></span>
+                    <span class="tour-dot w-2 h-2 rounded-full bg-slate-700" data-slide="2"></span>
+                    {% if has_overseerr %}<span class="tour-dot w-2 h-2 rounded-full bg-slate-700" data-slide="3"></span>{% endif %}
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="dismissFirstVisitTour()" class="text-xs text-slate-500 hover:text-slate-300">Skip</button>
+                    <button type="button" id="tour-next-btn" onclick="tourNext()" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-xs transition">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function() {
+            const totalSlides = {{ 3 if has_overseerr else 2 }};
+            let slide = 1;
+            window.tourNext = function() {
+                if (slide >= totalSlides) {
+                    dismissFirstVisitTour();
+                    return;
+                }
+                document.getElementById('tour-slide-' + slide).classList.add('hidden');
+                slide += 1;
+                document.getElementById('tour-slide-' + slide).classList.remove('hidden');
+                document.querySelectorAll('.tour-dot').forEach(d => {
+                    d.classList.toggle('bg-amber-500', parseInt(d.dataset.slide) <= slide);
+                    d.classList.toggle('bg-slate-700', parseInt(d.dataset.slide) > slide);
+                });
+                const btn = document.getElementById('tour-next-btn');
+                if (slide >= totalSlides) btn.textContent = 'Get started';
+            };
+            window.dismissFirstVisitTour = function() {
+                const modal = document.getElementById('first-visit-modal');
+                if (modal) modal.remove();
+                fetch('/welcome/complete', { method: 'POST' }).catch(() => {});
+            };
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') dismissFirstVisitTour();
+            });
+        })();
+    </script>
+    {% endif %}
+
     <script>
         let activeSyncToast = null;
 

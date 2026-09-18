@@ -1,7 +1,7 @@
 import pytest
 from starlette.testclient import TestClient
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, create_or_update_user, upsert_user_media, record_watch_event
+from plex_recommender.db import init_db, create_or_update_user, upsert_user_media, record_watch_event, mark_onboarded
 from plex_recommender.web.app import app
 
 USER = "u1"
@@ -21,6 +21,7 @@ def _login(client):
         "user_key": USER, "username": "alice", "email": "a@x.com",
         "title": "Alice", "is_admin": True,
     })
+    mark_onboarded(USER)
     import itsdangerous, json, base64
     signer = itsdangerous.TimestampSigner(settings.session_secret)
     cookie = signer.sign(base64.b64encode(json.dumps({"user_key": USER}).encode())).decode()
@@ -193,7 +194,7 @@ def test_taste_profile_does_not_show_data_sources_accordion():
         resp = client.get("/")
         assert resp.status_code == 200
         assert "Data sources" not in resp.text
-        assert "Viewing Trends & Taste Profile" in resp.text
+        assert "Hey, Alice." in resp.text
 
 
 def test_env_managed_setting_is_locked_and_not_overwritten(monkeypatch):

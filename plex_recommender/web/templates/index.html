@@ -22,8 +22,15 @@
     <!-- Top Hero / Welcome -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 to-slate-800/80 p-6 rounded-2xl border border-slate-800 shadow-xl">
         <div>
-            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">Viewing Trends & Taste Profile</h1>
-            <p class="text-sm text-slate-400 mt-1">Deep analysis of your Plex playback history with recency decay and creator affinity.</p>
+            <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+                {% if first_name %}Hey, {{ first_name }}.{% else %}Viewing Trends & Taste Profile{% endif %}
+            </h1>
+            <p class="text-sm text-slate-400 mt-1">
+                {% if profile.summary and profile.summary.headline %}{{ profile.summary.headline }}{% else %}Deep analysis of your Plex playback history with recency decay and creator affinity.{% endif %}
+            </p>
+            {% if welcome_back_at %}
+            <p class="text-xs text-slate-500 mt-1.5">Welcome back — it's been a while since your last visit.</p>
+            {% endif %}
         </div>
         <div class="flex items-center gap-3">
             {% if recs_ready %}
@@ -63,7 +70,68 @@
     </div>
 
     {% if not profile.has_data %}
-    <!-- Empty State / Setup Required Prompt -->
+    {% if current_user and not current_user.is_admin %}
+    <!-- Non-admin waiting state: history not synced yet for this user -->
+    <div id="waiting-state" class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-8 text-center space-y-4">
+        <div class="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto">
+            {% if sync_state.is_syncing %}
+            <svg class="w-8 h-8 stroke-current fill-none animate-spin" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" stroke="none" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            {% else %}
+            <svg class="w-8 h-8 stroke-current fill-none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {% endif %}
+        </div>
+        <h2 id="waiting-title" class="text-xl font-bold text-white">
+            {% if sync_state.is_syncing %}We're analyzing your Plex history right now{% else %}Your picks are being prepared{% endif %}
+        </h2>
+        <p id="waiting-message" class="text-sm text-slate-400 max-w-md mx-auto">
+            {% if sync_state.is_syncing %}
+            This usually only takes a few minutes. This page will refresh automatically once it's done.
+            {% else %}
+            Your administrator hasn't finished the initial setup yet. Check back soon — this page checks automatically.
+            {% endif %}
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-lg mx-auto pt-2 text-left">
+            <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
+                <div class="text-xs font-semibold text-amber-400">Taste Profile</div>
+                <div class="text-[11px] text-slate-400 mt-1">Genres, directors &amp; actors scored from your watch history.</div>
+            </div>
+            <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
+                <div class="text-xs font-semibold text-amber-400">Unseen Picks</div>
+                <div class="text-[11px] text-slate-400 mt-1">Movies &amp; shows you haven't watched yet, matched to your taste.</div>
+            </div>
+            <div class="bg-slate-950/40 border border-slate-800 rounded-xl p-3">
+                <div class="text-xs font-semibold text-amber-400">1-Click Requests</div>
+                <div class="text-[11px] text-slate-400 mt-1">Request anything missing directly from a recommendation card.</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function() {
+            const wasSyncing = {{ 'true' if sync_state.is_syncing else 'false' }};
+            async function checkForData() {
+                try {
+                    const res = await fetch('/api/sync/status');
+                    const data = await res.json();
+                    if (wasSyncing && !data.is_syncing) {
+                        window.location.reload();
+                        return;
+                    }
+                    if (!wasSyncing && data.is_syncing) {
+                        window.location.reload();
+                        return;
+                    }
+                } catch (e) { /* ignore, try again next tick */ }
+            }
+            setInterval(checkForData, 60000);
+        })();
+    </script>
+    {% else %}
+    <!-- Empty State / Setup Required Prompt (admin) -->
     <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-8 text-center space-y-4">
         <div class="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto">
             <svg class="w-8 h-8 stroke-current fill-none" viewBox="0 0 24 24">
@@ -75,15 +143,12 @@
             Connect your Plex server and pull your historic watch logs to generate your personal taste profile and recommendations.
         </p>
         <div class="pt-2">
-            {% if current_user and current_user.is_admin %}
             <a href="/settings" class="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm transition">
                 <span>Connect Plex Server</span>
             </a>
-            {% else %}
-            <p class="text-xs text-slate-500">Ask your server administrator to sync libraries and watch history.</p>
-            {% endif %}
         </div>
     </div>
+    {% endif %}
     {% else %}
 
     <!-- Taste Profile Summary Card -->

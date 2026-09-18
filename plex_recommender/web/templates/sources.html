@@ -57,12 +57,18 @@
         </div>
         <h2 class="text-xl font-bold text-white">No Watch History Found</h2>
         <p class="text-sm text-slate-400 max-w-md mx-auto">
+            {% if current_user and current_user.is_admin %}
             No playback events are recorded for your account yet. Trigger a sync in Settings or wait for the background job to pull your history.
+            {% else %}
+            No playback events are recorded for your account yet. Once your administrator syncs the server, your watch history will show up here.
+            {% endif %}
         </p>
         <div class="pt-2">
+            {% if current_user and current_user.is_admin %}
             <a href="/settings" class="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold text-sm transition">
                 <span>Go to Settings &amp; Sync</span>
             </a>
+            {% endif %}
         </div>
     </div>
     {% else %}

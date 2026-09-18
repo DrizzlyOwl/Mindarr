@@ -1,6 +1,7 @@
 import logging
 import threading
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, BackgroundTasks, HTTPException
@@ -24,6 +25,7 @@ from plex_recommender.db import (
     record_vote, remove_vote, get_user_votes, get_user_vote_items,
     get_user_action_counts,
     get_system_logs, truncate_system_logs, clear_all_system_logs,
+    touch_last_seen, mark_onboarded,
 )
 from plex_recommender.auth import (
     create_plex_pin, check_plex_pin, verify_plex_connection,
@@ -161,13 +163,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Mindarr", version=__version__, lifespan=lifespan)
 
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    max_age=SESSION_MAX_AGE,
-    same_site="lax",
-)
-
 
 def get_current_user(request: Request) -> Optional[dict]:
     """Resolve the logged-in user from the session, or None."""
@@ -182,6 +177,58 @@ def recommendations_ready(user: Optional[dict]) -> bool:
     if not user:
         return False
     return has_user_history(user["user_key"])
+
+
+def first_name_of(user: Optional[dict]) -> str:
+    """Best-effort first name for a personalized greeting."""
+    if not user:
+        return ""
+    name = user.get("title") or user.get("username") or ""
+    return name.split(" ")[0] if name else ""
+
+
+def needs_first_visit_tour(user: Optional[dict]) -> bool:
+    """Shared (non-admin) users see a one-time welcome tour; admins get the /welcome wizard instead."""
+    return bool(user and not user.get("is_admin") and not user.get("onboarded_at"))
+
+
+def admin_setup_incomplete() -> bool:
+    """True while the admin hasn't finished the essentials: TMDb key, linked Plex server, first sync."""
+    return bool(
+        not settings.tmdb_api_key
+        or not settings.plex_machine_id
+        or not get_setting("last_sync_time")
+    )
+
+
+# Paths the onboarding redirect gate never intercepts.
+_ONBOARDING_GATE_ALLOWLIST = ("/welcome", "/logout", "/login", "/api/", "/static/")
+
+
+@app.middleware("http")
+async def onboarding_gate(request: Request, call_next):
+    """Redirect an admin who hasn't finished first-run setup to /welcome.
+
+    Only applies to admins; shared users are never redirected here. Excludes
+    the wizard route itself, auth/logout, and all API/static endpoints so the
+    app never gets stuck in a redirect loop.
+    """
+    path = request.url.path
+    if not any(path == p or path.startswith(p) for p in _ONBOARDING_GATE_ALLOWLIST):
+        user = get_current_user(request)
+        if user and user.get("is_admin") and not user.get("onboarded_at") and admin_setup_incomplete():
+            return RedirectResponse(url="/welcome", status_code=303)
+    return await call_next(request)
+
+
+# Registered after onboarding_gate so SessionMiddleware wraps it (outermost),
+# ensuring request.session is populated before the gate reads it.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    max_age=SESSION_MAX_AGE,
+    same_site="lax",
+)
 
 
 # Mount static if directory exists
@@ -204,6 +251,21 @@ def index_page(request: Request):
         return RedirectResponse(url="/login", status_code=303)
     profile = analyzer.analyze(user["user_key"])
     stats = get_stats(user["user_key"])
+
+    # "Welcome back" caption: only surfaced once, right after login, and only
+    # if the user was previously seen more than 24h ago.
+    welcome_back_at = None
+    previous_seen = request.session.pop("previous_last_seen", None)
+    if previous_seen:
+        try:
+            prev_dt = datetime.fromisoformat(str(previous_seen).replace("Z", "+00:00"))
+            if prev_dt.tzinfo is None:
+                prev_dt = prev_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - prev_dt > timedelta(hours=24):
+                welcome_back_at = previous_seen
+        except Exception:
+            pass
+
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -214,7 +276,10 @@ def index_page(request: Request):
             "sync_state": sync_state,
             "current_user": user,
             "recs_ready": recommendations_ready(user),
-            "low_bandwidth": is_low_bandwidth(request)
+            "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
+            "welcome_back_at": welcome_back_at,
         }
     )
 
@@ -236,7 +301,9 @@ def community_page(request: Request):
             "sync_state": sync_state,
             "current_user": user,
             "recs_ready": recommendations_ready(user),
-            "low_bandwidth": is_low_bandwidth(request)
+            "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -266,7 +333,9 @@ def sources_page(request: Request):
             "sync_state": sync_state,
             "current_user": user,
             "recs_ready": recommendations_ready(user),
-            "low_bandwidth": is_low_bandwidth(request)
+            "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -342,6 +411,8 @@ def recommendations_page(
             "low_bandwidth": is_low_bandwidth(request),
             "force_refresh": force_refresh,
             "user_votes": get_user_votes(user["user_key"]),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -620,7 +691,9 @@ def settings_page(request: Request):
                 "AUTO_SYNC_HOURS": settings.is_locked("AUTO_SYNC_HOURS"),
                 "AUTO_RECOMMENDATIONS_HOURS": settings.is_locked("AUTO_RECOMMENDATIONS_HOURS"),
             },
-            "low_bandwidth": is_low_bandwidth(request)
+            "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -716,6 +789,8 @@ def jobs_page(request: Request):
             "current_user": user,
             "recs_ready": recommendations_ready(user),
             "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -784,6 +859,8 @@ def system_page(request: Request):
             "current_user": user,
             "recs_ready": recommendations_ready(user),
             "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -817,6 +894,8 @@ def logs_page(request: Request, level: Optional[str] = None, q: Optional[str] = 
             "current_user": user,
             "recs_ready": recommendations_ready(user),
             "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
 
@@ -853,6 +932,80 @@ def api_clear_logs(request: Request):
     logger.info("Admin '%s' wiped all system logs.", user.get("username"))
     log_handler.clear()
     return RedirectResponse(url="/settings/logs?cleared=1", status_code=303)
+
+@app.get("/welcome", response_class=HTMLResponse)
+def welcome_page(request: Request):
+    """Admin first-run setup wizard: Plex -> TMDb -> optional integrations -> initial sync."""
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if not user.get("is_admin"):
+        return RedirectResponse(url="/", status_code=303)
+
+    plex_connected, plex_msg = (False, "")
+    if settings.plex_token:
+        plex_connected, plex_msg = verify_plex_connection()
+
+    overseerr_connected, overseerr_msg = overseerr.test_connection()
+    tautulli_connected, tautulli_msg = tautulli.test_connection()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="welcome.html",
+        context={
+            "settings": settings,
+            "current_user": user,
+            "sync_state": sync_state,
+            "recs_ready": recommendations_ready(user),
+            "low_bandwidth": is_low_bandwidth(request),
+            "first_name": first_name_of(user),
+            "show_first_visit_tour": False,
+            "plex_connected": plex_connected,
+            "plex_msg": plex_msg,
+            "overseerr_connected": overseerr_connected,
+            "overseerr_msg": overseerr_msg,
+            "tautulli_connected": tautulli_connected,
+            "tautulli_msg": tautulli_msg,
+            "env_locked": {
+                "PLEX_URL": settings.is_locked("PLEX_URL"),
+                "TMDB_API_KEY": settings.is_locked("TMDB_API_KEY"),
+                "OVERSEERR_URL": settings.is_locked("OVERSEERR_URL"),
+                "OVERSEERR_API_KEY": settings.is_locked("OVERSEERR_API_KEY"),
+                "TAUTULLI_URL": settings.is_locked("TAUTULLI_URL"),
+                "TAUTULLI_API_KEY": settings.is_locked("TAUTULLI_API_KEY"),
+            },
+        }
+    )
+
+
+@app.post("/welcome/complete")
+def welcome_complete(request: Request):
+    """Mark the current user as onboarded.
+
+    Used by the admin setup wizard (finish/skip) and by the shared-user
+    first-visit welcome tour modal (dismiss/finish) to release the relevant
+    one-time UI and, for admins, the /welcome redirect gate.
+    """
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    mark_onboarded(user["user_key"])
+    logger.info(
+        "User '%s' completed onboarding (%s).",
+        user.get("username") or user.get("user_key"),
+        "admin wizard" if user.get("is_admin") else "first-visit tour",
+    )
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/api/plex/test")
+def test_plex_route(request: Request):
+    user = get_current_user(request)
+    if not user or not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    success, message = verify_plex_connection()
+    return JSONResponse({"success": success, "message": message})
+
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
@@ -909,6 +1062,9 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
             "is_admin": True,
         })
         request.session["user_key"] = account["user_key"]
+        previous_seen = touch_last_seen(account["user_key"])
+        if previous_seen:
+            request.session["previous_last_seen"] = previous_seen
         logger.info(
             "Initial setup: user '%s' (%s) registered as Administrator and server token owner.",
             account.get("username") or account.get("title"),
@@ -937,6 +1093,9 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
 
     create_or_update_user({**account, "plex_token": token, "is_admin": False})
     request.session["user_key"] = account["user_key"]
+    previous_seen = touch_last_seen(account["user_key"])
+    if previous_seen:
+        request.session["previous_last_seen"] = previous_seen
     logger.info(
         "User '%s' (%s) signed in successfully.",
         account.get("username") or account.get("title"),
