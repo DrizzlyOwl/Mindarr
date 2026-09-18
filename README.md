@@ -26,6 +26,8 @@ Deployable as a **TrueNAS SCALE Custom App** or standalone Docker container. Web
 - **Overseerr Integration**: 1-click request button on each recommendation card.
 - **Modern Web Dashboard**: Responsive dark-mode UI with Chart.js charts, plus a background
   sync scheduler.
+- **Installable PWA**: Add Mindarr to your home screen or desktop for an app-like experience,
+  with offline fallback and a network-first service worker.
 - **Sessions**: 1-hour session lifetime; the Plex token is validated at login.
 
 ---
@@ -90,6 +92,23 @@ python -m plex_recommender
 3. Other authorized users can now sign in and see recommendations tailored to their own
    Tautulli history.
 4. Visit **Dashboard & Trends** and **Unseen Recommendations**.
+
+---
+
+## Installing as an App (PWA)
+
+Mindarr is an installable Progressive Web App:
+
+- **Desktop (Chrome/Edge)**: click the install icon in the address bar, or use the
+  **Install App** option in the user menu.
+- **Android (Chrome)**: use the **Install App** option in the user menu, or the browser's
+  "Add to Home screen" prompt.
+- **iOS (Safari)**: tap **Share** → **Add to Home Screen**.
+
+Once installed, Mindarr launches in its own standalone window/icon, and a lightweight
+service worker keeps the app responsive and shows an offline page if your connection drops.
+Caching is **network-first** — the app always prefers fresh data and only falls back to
+cached content when offline.
 
 ---
 
