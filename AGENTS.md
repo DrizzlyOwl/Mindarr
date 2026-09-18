@@ -149,6 +149,41 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - Docker: `docker compose up` (entry launches uvicorn; **CLI has been removed**)
 - Tests: `pytest`
 
+## PWA (installable app)
+- `plex_recommender/web/static/manifest.json` — web app manifest (name, icons,
+  `standalone` display, theme/background `#0b0f19`, shortcuts to `/`,
+  `/recommendations`, `/community/`).
+- `plex_recommender/web/static/sw.js` — service worker, served at root (`/sw.js`,
+  not `/static/sw.js`) via a dedicated FastAPI route so `Service-Worker-Allowed: /`
+  gives it full-app scope. **Caching strategy is network-first**: every GET tries
+  the network, caches the response on success, and only falls back to the cache
+  (or the precached `/offline` page for navigations) when the network fails.
+  Non-GET requests and cross-origin requests are never intercepted.
+- `plex_recommender/web/templates/offline.html` — standalone (no layout
+  inheritance) offline fallback page precached by the service worker.
+- Icons live in `plex_recommender/web/static/icons/` (`icon.svg`, `icon-192.png`,
+  `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png`, favicons).
+- Routes `/manifest.json` (+ `/manifest.webmanifest` alias), `/sw.js`, and
+  `/offline` are allowlisted in `_ONBOARDING_GATE_ALLOWLIST` in `web/app.py` so
+  they're reachable pre-login and during first-run onboarding.
+- `layout.html` and `login.html` both register the service worker and include
+  the manifest/icon/theme-color meta tags; `layout.html` additionally wires up
+  a `beforeinstallprompt`-driven "Install App" action in the user dropdown and
+  mobile menu.
+- When bumping the app version, also update the `CACHE_VERSION` constant in
+  `sw.js` so clients pick up a fresh cache instead of reusing stale entries.
+
+## Releases & versioning
+- Canonical version lives in `plex_recommender/__init__.py` (`__version__`) and
+  must be kept in sync with `pyproject.toml`'s `[project] version`.
+- **Every version bump must be tagged and published as a GitHub release.**
+  After merging the version bump:
+  1. `git tag -a vX.Y.Z -m "vX.Y.Z: <short summary>"`
+  2. `git push origin main --tags` (or push the tag explicitly)
+  3. `gh release create vX.Y.Z --title "vX.Y.Z: <short summary>" --notes "<changelog>"`
+- Do not tag/release without an accompanying version bump commit, and don't bump
+  the version without eventually tagging + releasing it.
+
 ## Gotchas
 - No CLI — the app is web-only; don't reintroduce `cli.py` entry points.
 - Keep optional-integration failures non-fatal to the sync/recommendation flow.

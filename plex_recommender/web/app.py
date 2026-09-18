@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -229,7 +229,10 @@ def admin_setup_incomplete() -> bool:
 
 
 # Paths the onboarding redirect gate never intercepts.
-_ONBOARDING_GATE_ALLOWLIST = ("/welcome", "/logout", "/login", "/api/", "/static/")
+_ONBOARDING_GATE_ALLOWLIST = (
+    "/welcome", "/logout", "/login", "/api/", "/static/",
+    "/manifest.json", "/manifest.webmanifest", "/sw.js", "/offline",
+)
 
 
 @app.middleware("http")
@@ -262,6 +265,39 @@ app.add_middleware(
 static_dir = BASE_DIR / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+@app.get("/manifest.json")
+@app.get("/manifest.webmanifest")
+def pwa_manifest():
+    """Web app manifest, required for Chrome/Android/desktop install prompts."""
+    return FileResponse(
+        str(static_dir / "manifest.json"),
+        media_type="application/manifest+json",
+    )
+
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    """Service worker script. Served from the root so its scope covers the
+    whole app (`Service-Worker-Allowed: /`), even though the file physically
+    lives under /static."""
+    return FileResponse(
+        str(static_dir / "sw.js"),
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/offline", response_class=HTMLResponse)
+def pwa_offline(request: Request):
+    """Offline fallback page, precached by the service worker for use when
+    the network is unavailable."""
+    return templates.TemplateResponse(request, "offline.html", {})
+
 
 def is_low_bandwidth(request: Request) -> bool:
     """Check if low-bandwidth mode is active via cookie or query param."""
