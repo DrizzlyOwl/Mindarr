@@ -74,15 +74,34 @@ def test_taste_analyzer_generates_rankings():
     assert genres[0]["genre"] == "Science Fiction"
     assert genres[0]["score"] == 100.0
 
-    # Top Directors
-    directors = [d["name"] for d in profile["top_directors"]]
-    assert "Christopher Nolan" in directors
-    assert "Denis Villeneuve" in directors
+    # Top movies (most-watched ranking)
+    top_movies = profile["top_movies"]
+    assert top_movies[0]["item_id"] == "movie_1"  # highest view_count
+    assert top_movies[0]["view_count"] == 3
+
+    # Directors/actors no longer surfaced in the profile output
+    assert "top_directors" not in profile
+    assert "top_actors" not in profile
 
     # Decades
     decades = {d["decade"]: d["count"] for d in profile["decades"]}
     assert decades.get("2010s") == 2
     assert decades.get("1970s") == 1
+
+
+def test_analyze_surfaces_top_shows():
+    now_iso = datetime.now().isoformat()
+    upsert_user_media(USER, {
+        "item_id": "show_1", "media_type": "show", "title": "Big Binge",
+        "year": 2020, "genres": ["Drama"], "view_count": 20, "last_viewed_at": now_iso,
+    })
+    upsert_user_media(USER, {
+        "item_id": "show_2", "media_type": "show", "title": "Casual Watch",
+        "year": 2018, "genres": ["Comedy"], "view_count": 3, "last_viewed_at": now_iso,
+    })
+    profile = TasteAnalyzer().analyze(USER)
+    top_shows = profile["top_shows"]
+    assert [s["item_id"] for s in top_shows] == ["show_1", "show_2"]
 
 
 def test_analyze_handles_timezone_aware_dates():

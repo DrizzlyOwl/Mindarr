@@ -2,7 +2,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple
 from collections import defaultdict
-from plex_recommender.db import get_user_media_items, get_watch_events, get_stats, get_watch_source_breakdown
+from plex_recommender.db import get_user_media_items, get_watch_events, get_stats, get_watch_source_breakdown, get_top_watched
 
 def parse_date(date_val) -> datetime:
     """Safely parse date string or datetime, always returning a naive datetime."""
@@ -193,14 +193,15 @@ class TasteAnalyzer:
         summary = self._build_summary(
             normalized_genres=normalized_genres,
             top_keywords=top_keywords,
-            top_directors=top_directors,
-            top_actors=top_actors,
             sorted_decades=sorted_decades,
             movies_count=movies_count,
             shows_count=shows_count,
             total_items=len(items),
             source_breakdown=get_watch_source_breakdown(user_key),
         )
+
+        top_movies = get_top_watched(user_key, "movie", limit=10)
+        top_shows = get_top_watched(user_key, "show", limit=10)
 
         return {
             "has_data": True,
@@ -213,8 +214,8 @@ class TasteAnalyzer:
             "top_genres": normalized_genres[:15],
             "query_genres": top_5_genres,
             "top_keywords": top_keywords,
-            "top_directors": top_directors,
-            "top_actors": top_actors,
+            "top_movies": top_movies,
+            "top_shows": top_shows,
             "decades": sorted_decades,
             "summary": summary,
             "generated_at": self.now.isoformat()
@@ -223,8 +224,6 @@ class TasteAnalyzer:
     def _build_summary(
         self,
         normalized_genres,
-        top_directors,
-        top_actors,
         sorted_decades,
         movies_count,
         shows_count,
@@ -292,20 +291,6 @@ class TasteAnalyzer:
             highlights.append({
                 "text": f"You gravitate toward {favored_decade['decade']} releases.",
                 "metric": f"{favored_decade['count']} watched titles from the {favored_decade['decade']}.",
-            })
-
-        if top_directors:
-            d = top_directors[0]
-            highlights.append({
-                "text": f"{d['name']} is your most-watched creator.",
-                "metric": f"Affinity score {d['score']} (weighted by recency & ratings).",
-            })
-
-        if top_actors:
-            names = ", ".join(a["name"] for a in top_actors[:3])
-            highlights.append({
-                "text": f"Familiar faces you return to: {names}.",
-                "metric": f"Top cast affinity: {top_actors[0]['name']} ({top_actors[0]['score']}).",
             })
 
         if trending:
