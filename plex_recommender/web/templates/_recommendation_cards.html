@@ -182,14 +182,14 @@
 
             <!-- Unified Match Score + Decision Rationale Pill -->
             <div class="absolute top-3 left-3 z-30">
-                <div class="relative group/tooltip">
-                    <button type="button" class="flex items-center gap-1 bg-amber-500/95 backdrop-blur text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow-lg cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
+                <div class="relative">
+                    <button type="button" onclick="togglePopover('match-popover-{{ item.tmdb_id }}')" aria-expanded="false" aria-haspopup="true" class="flex items-center gap-1 bg-amber-500/95 backdrop-blur text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow-lg cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
                         <span>{{ item.match_score }}% Match</span>
                         <svg class="w-3.5 h-3.5 fill-current opacity-80" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10A8 8 0 11.99 10 8 8 0 0118 10zm-8-3a1 1 0 100 2 1 1 0 000-2zm1 4a1 1 0 10-2 0v3a1 1 0 102 0v-3z" clip-rule="evenodd"/></svg>
                     </button>
 
-                    <!-- Floating Tooltip Card: Popped Over Card -->
-                    <div class="absolute left-0 top-8 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible group-focus-within/tooltip:opacity-100 group-focus-within/tooltip:visible transition-all duration-200 z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
+                    <!-- Floating Tooltip Card: tap/click to toggle (touch-friendly) -->
+                    <div id="match-popover-{{ item.tmdb_id }}" data-popover class="absolute left-0 top-8 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 hidden z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
                         {{ decision_rationale_content(item) }}
                     </div>
                 </div>
@@ -238,14 +238,14 @@
         <div class="p-5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border-b border-slate-800 space-y-3 rounded-t-2xl">
             <div class="flex items-center justify-between">
                 <!-- Unified Match Score + Decision Rationale Pill -->
-                <div class="relative group/tooltip">
-                    <button type="button" class="flex items-center gap-1 bg-amber-500/95 text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
+                <div class="relative">
+                    <button type="button" onclick="togglePopover('match-popover-lb-{{ item.tmdb_id }}')" aria-expanded="false" aria-haspopup="true" class="flex items-center gap-1 bg-amber-500/95 text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
                         <span>{{ item.match_score }}% Match</span>
                         <svg class="w-3.5 h-3.5 fill-current opacity-80" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10A8 8 0 11.99 10 8 8 0 0118 10zm-8-3a1 1 0 100 2 1 1 0 000-2zm1 4a1 1 0 10-2 0v3a1 1 0 102 0v-3z" clip-rule="evenodd"/></svg>
                     </button>
 
-                    <!-- Floating Tooltip Card: Popped Over Card -->
-                    <div class="absolute left-0 top-8 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible group-focus-within/tooltip:opacity-100 group-focus-within/tooltip:visible transition-all duration-200 z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
+                    <!-- Floating Tooltip Card: tap/click to toggle (touch-friendly) -->
+                    <div id="match-popover-lb-{{ item.tmdb_id }}" data-popover class="absolute left-0 top-8 w-72 sm:w-84 max-w-[calc(100vw-3rem)] bg-[#0f172a] border border-slate-700 text-slate-200 rounded-xl p-4 shadow-2xl shadow-black/90 hidden z-50 pointer-events-auto text-left space-y-3 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']">
                         {{ decision_rationale_content(item) }}
                     </div>
                 </div>
@@ -376,7 +376,7 @@
                     {% endif %}
 
                     {% if item.overseerr_url %}
-                    <a href="{{ item.overseerr_url }}" target="_blank" rel="noopener noreferrer" title="View on Overseerr" class="inline-flex items-center justify-center p-2 rounded-xl bg-slate-800 hover:bg-indigo-900/60 text-indigo-400 hover:text-indigo-300 font-bold text-xs border border-slate-700 hover:border-indigo-500/50 transition">
+                    <a href="{{ item.overseerr_url }}" target="_blank" rel="noopener noreferrer" title="View on Overseerr" aria-label="View on Overseerr" class="inline-flex items-center justify-center p-2 rounded-xl bg-slate-800 hover:bg-indigo-900/60 text-indigo-400 hover:text-indigo-300 font-bold text-xs border border-slate-700 hover:border-indigo-500/50 transition">
                         <span class="text-xs font-black">O</span>
                     </a>
                     {% endif %}
@@ -393,12 +393,12 @@
                     {% set is_up = (user_votes and user_votes.get(item.tmdb_id|string) == 1) or item.is_upvoted %}
                     {% set is_down = (user_votes and user_votes.get(item.tmdb_id|string) == -1) or item.is_downvoted %}
                     <div class="inline-flex items-center space-x-1">
-                        <button type="button" id="vote-up-{{ item.tmdb_id }}" data-upvoted="{{ '1' if is_up else '0' }}" onclick="toggleVote('{{ item.tmdb_id }}', '{{ item.media_type }}', '{{ item.title|replace('\'', '\\\'') }}', '{{ item.year or '' }}', 1, this)" class="p-1.5 rounded-lg border transition flex items-center justify-center {% if is_up %}bg-amber-500/20 text-amber-400 border-amber-500/40{% else %}bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60{% endif %}" title="{% if is_up %}Upvoted — click to remove{% else %}Thumbs up — recommend more like this{% endif %}" aria-label="Thumbs up">
+                        <button type="button" id="vote-up-{{ item.tmdb_id }}" data-upvoted="{{ '1' if is_up else '0' }}" onclick="toggleVote('{{ item.tmdb_id }}', '{{ item.media_type }}', '{{ item.title|replace('\'', '\\\'') }}', '{{ item.year or '' }}', 1, this)" class="p-1.5 rounded-lg border transition flex items-center justify-center {% if is_up %}bg-amber-500/20 text-amber-400 border-amber-500/40{% else %}bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60{% endif %}" title="{% if is_up %}Upvoted — click to remove{% else %}Thumbs up — recommend more like this{% endif %}" aria-label="{% if is_up %}Upvoted — click to remove{% else %}Thumbs up — recommend more like this{% endif %}">
                             <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
                                 <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a2 2 0 00-.8 1.6v.8z" />
                             </svg>
                         </button>
-                        <button type="button" id="vote-down-{{ item.tmdb_id }}" data-downvoted="{{ '1' if is_down else '0' }}" onclick="thumbsDown('{{ item.tmdb_id }}', '{{ item.media_type }}', '{{ item.title|replace('\'', '\\\'') }}', '{{ item.year or '' }}', this)" class="p-1.5 rounded-lg border transition flex items-center justify-center {% if is_down %}bg-rose-500/20 text-rose-400 border-rose-500/40{% else %}bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border-slate-700/60 hover:border-rose-500/40{% endif %}" title="{% if is_down %}Downvoted — click to remove{% else %}Thumbs down — don't recommend this{% endif %}" aria-label="Thumbs down">
+                        <button type="button" id="vote-down-{{ item.tmdb_id }}" data-downvoted="{{ '1' if is_down else '0' }}" onclick="thumbsDown('{{ item.tmdb_id }}', '{{ item.media_type }}', '{{ item.title|replace('\'', '\\\'') }}', '{{ item.year or '' }}', this)" class="p-1.5 rounded-lg border transition flex items-center justify-center {% if is_down %}bg-rose-500/20 text-rose-400 border-rose-500/40{% else %}bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border-slate-700/60 hover:border-rose-500/40{% endif %}" title="{% if is_down %}Downvoted — click to remove{% else %}Thumbs down — don't recommend this{% endif %}" aria-label="{% if is_down %}Downvoted — click to remove{% else %}Thumbs down — don't recommend this{% endif %}">
                             <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
                                 <path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a2 2 0 00.8-1.6v-.8z" />
                             </svg>

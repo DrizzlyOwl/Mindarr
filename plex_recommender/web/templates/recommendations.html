@@ -923,6 +923,7 @@
                         btn.dataset.downvoted = '0';
                         btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border-slate-700/60 hover:border-rose-500/40';
                         btn.title = "Thumbs down — don't recommend this";
+                        btn.setAttribute('aria-label', "Thumbs down — don't recommend this");
                     }
                     clearReduceAnimation(card);
                     if (typeof showToast === 'function') {
@@ -962,6 +963,7 @@
                     btn.dataset.downvoted = '1';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-rose-500/20 text-rose-400 border-rose-500/40';
                     btn.title = 'Downvoted — click to remove';
+                    btn.setAttribute('aria-label', 'Downvoted — click to remove');
                 }
                 if (typeof showToast === 'function') {
                     showToast(`Reduced weight for "${title || 'Title'}". It'll surface less often.`, 'info', 5000, {
@@ -1006,6 +1008,7 @@
                     btn.dataset.upvoted = '0';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60';
                     btn.title = 'Thumbs up — recommend more like this';
+                    btn.setAttribute('aria-label', 'Thumbs up — recommend more like this');
                     clearBoostAnimation(card);
                     if (typeof showToast === 'function') {
                         showToast(`Removed thumbs up for "${title || 'Title'}".`, 'info');
@@ -1037,6 +1040,7 @@
                     btn.dataset.upvoted = '1';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-amber-500/20 text-amber-400 border-amber-500/40';
                     btn.title = 'Upvoted — click to remove';
+                    btn.setAttribute('aria-label', 'Upvoted — click to remove');
                     // Highlight with a green "boosting weight" flash + upward lift animation.
                     playBoostAnimation(card);
                     if (typeof showToast === 'function') {

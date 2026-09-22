@@ -207,9 +207,10 @@
                         <span class="text-amber-400 font-normal normal-case inline-flex items-center space-x-1" {% if current_user and current_user.is_admin and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}title="Real username: @{{ community.user_comparison.leader.real_username }}"{% endif %}>
                             <span>{{ community.user_comparison.leader.display_name or community.user_comparison.leader.username }}</span>
                             {% if current_user and current_user.is_admin and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}
-                            <span class="cursor-help text-slate-400 hover:text-amber-300" title="Real username: @{{ community.user_comparison.leader.real_username }}">
+                            <button type="button" onclick="togglePopover('username-popover-leader')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer text-slate-400 hover:text-amber-300" aria-label="Show real username">
                                 <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                            </span>
+                                <span id="username-popover-leader" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.user_comparison.leader.real_username }}</span>
+                            </button>
                             {% endif %}
                         </span>
                     </div>
@@ -262,18 +263,20 @@
                 </div>
                 <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
                     {% for b in community.user_comparison.unlocked_badges %}
-                    <div class="bg-slate-950/70 border border-amber-500/30 rounded-xl p-2.5 flex flex-col items-center text-center shadow group hover:border-amber-400 transition" title="{{ b.desc }}">
+                    <button type="button" onclick="togglePopover('badge-popover-unlocked-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative bg-slate-950/70 border border-amber-500/30 rounded-xl p-2.5 flex flex-col items-center text-center shadow hover:border-amber-400 transition w-full">
                         <span class="text-2xl filter drop-shadow">{{ b.icon }}</span>
                         <span class="text-[11px] font-bold text-white mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
                         <span class="text-[9px] text-emerald-400 font-medium">Unlocked</span>
-                    </div>
+                        <span id="badge-popover-unlocked-{{ loop.index0 }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-40 bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl">{{ b.desc }}</span>
+                    </button>
                     {% endfor %}
                     {% for b in community.user_comparison.locked_badges %}
-                    <div class="bg-slate-950/40 border border-slate-800/70 rounded-xl p-2.5 flex flex-col items-center text-center opacity-40 hover:opacity-75 transition group" title="{{ b.hint }}">
+                    <button type="button" onclick="togglePopover('badge-popover-locked-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative bg-slate-950/40 border border-slate-800/70 rounded-xl p-2.5 flex flex-col items-center text-center opacity-40 hover:opacity-75 transition w-full">
                         <span class="text-2xl filter grayscale">{{ b.icon }}</span>
                         <span class="text-[11px] font-medium text-slate-400 mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
                         <span class="text-[9px] text-slate-500">Locked</span>
-                    </div>
+                        <span id="badge-popover-locked-{{ loop.index0 }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-40 bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl opacity-100">{{ b.hint }}</span>
+                    </button>
                     {% endfor %}
                 </div>
             </div>
@@ -305,9 +308,10 @@
                 <div class="flex items-center space-x-1.5 mt-3">
                     <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and community.podium.second.real_username and not community.podium.second.is_me %}title="Real username: @{{ community.podium.second.real_username }}"{% endif %}>{{ community.podium.second.display_name or community.podium.second.username }}</h4>
                     {% if current_user and current_user.is_admin and community.podium.second.real_username and not community.podium.second.is_me %}
-                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.second.real_username }}">
+                    <button type="button" onclick="togglePopover('username-popover-podium-2')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                    </span>
+                        <span id="username-popover-podium-2" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.second.real_username }}</span>
+                    </button>
                     {% endif %}
                 </div>
                 <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.second.gamification.title }}</span>
@@ -345,9 +349,10 @@
                 <div class="flex items-center space-x-1.5 mt-3">
                     <h4 class="font-extrabold text-white text-lg" {% if current_user and current_user.is_admin and community.podium.first.real_username and not community.podium.first.is_me %}title="Real username: @{{ community.podium.first.real_username }}"{% endif %}>{{ community.podium.first.display_name or community.podium.first.username }}</h4>
                     {% if current_user and current_user.is_admin and community.podium.first.real_username and not community.podium.first.is_me %}
-                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.first.real_username }}">
+                    <button type="button" onclick="togglePopover('username-popover-podium-1')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
                         <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                    </span>
+                        <span id="username-popover-podium-1" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.first.real_username }}</span>
+                    </button>
                     {% endif %}
                 </div>
                 <span class="text-xs text-amber-400 font-semibold">{{ community.podium.first.gamification.title }}</span>
@@ -385,9 +390,10 @@
                 <div class="flex items-center space-x-1.5 mt-3">
                     <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and community.podium.third.real_username and not community.podium.third.is_me %}title="Real username: @{{ community.podium.third.real_username }}"{% endif %}>{{ community.podium.third.display_name or community.podium.third.username }}</h4>
                     {% if current_user and current_user.is_admin and community.podium.third.real_username and not community.podium.third.is_me %}
-                    <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ community.podium.third.real_username }}">
+                    <button type="button" onclick="togglePopover('username-popover-podium-3')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                    </span>
+                        <span id="username-popover-podium-3" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.third.real_username }}</span>
+                    </button>
                     {% endif %}
                 </div>
                 <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.third.gamification.title }}</span>
@@ -465,9 +471,10 @@
                                             <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 uppercase tracking-wider">You</span>
                                             {% endif %}
                                             {% if current_user and current_user.is_admin and user_row.real_username and not user_row.is_me %}
-                                            <span class="cursor-help inline-flex items-center text-slate-400 hover:text-amber-400 transition" title="Real username: @{{ user_row.real_username }}">
+                                            <button type="button" onclick="togglePopover('username-popover-row-{{ user_row.rank }}')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
                                                 <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                            </span>
+                                                <span id="username-popover-row-{{ user_row.rank }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ user_row.real_username }}</span>
+                                            </button>
                                             {% endif %}
                                         </div>
                                         <div class="text-[11px] text-slate-400 truncate">{{ user_row.gamification.title }}</div>
@@ -508,9 +515,10 @@
                             <td class="px-5 py-3.5 text-right whitespace-nowrap">
                                 <div class="inline-flex items-center space-x-1">
                                     {% for badge in user_row.gamification.badges[:4] %}
-                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" title="{{ badge.name }}: {{ badge.desc }}">
+                                    <button type="button" onclick="togglePopover('badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" aria-label="{{ badge.name }}: {{ badge.desc }}">
                                         {{ badge.icon }}
-                                    </span>
+                                        <span id="badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}" data-popover class="hidden absolute right-0 top-7 z-50 w-40 whitespace-normal text-left bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl">{{ badge.name }}: {{ badge.desc }}</span>
+                                    </button>
                                     {% endfor %}
                                     {% if user_row.gamification.badges|length > 4 %}
                                     <span class="text-[10px] text-slate-500 font-mono">+{{ user_row.gamification.badges|length - 4 }}</span>

@@ -191,11 +191,12 @@
             <p class="text-[11px] text-slate-500 mb-3">Recurring narrative motifs across your watch history, weighted by affinity &amp; recency. These steer your recommendations.</p>
             <div class="flex flex-wrap gap-2">
                 {% for k in profile.top_keywords[:15] %}
-                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-800/70 border border-slate-700/60 text-xs"
-                      title="{{ k.count }} watched title{{ 's' if k.count != 1 else '' }} &bull; {{ k.score }}% affinity">
+                <button type="button" onclick="togglePopover('keyword-popover-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true"
+                      class="relative inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-800/70 border border-slate-700/60 text-xs hover:border-slate-600 transition">
                     <span class="font-medium text-slate-200">{{ k.keyword }}</span>
                     <span class="text-[10px] font-semibold text-amber-400">{{ k.score }}%</span>
-                </span>
+                    <span id="keyword-popover-{{ loop.index0 }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-1.5 shadow-2xl">{{ k.count }} watched title{{ 's' if k.count != 1 else '' }} &bull; {{ k.score }}% affinity</span>
+                </button>
                 {% endfor %}
             </div>
         </div>

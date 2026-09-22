@@ -45,14 +45,14 @@
             <!-- Primary Navigation Links (Desktop) -->
             <nav class="hidden md:flex items-center space-x-1 lg:space-x-2">
                 <!-- Dashboard with Dropdown Submenu -->
-                <div class="relative group" id="dashboard-nav-group">
-                    <a href="/" class="px-3 py-2 rounded-lg text-sm font-medium transition inline-flex items-center space-x-1.5 {% if request.url.path == '/' or request.url.path.startswith('/community') or request.url.path.startswith('/sources') %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %}">
+                <div class="relative" id="dashboard-nav-group">
+                    <button type="button" onclick="togglePopover('dashboard-nav-dropdown')" aria-expanded="false" aria-haspopup="true" class="px-3 py-2 rounded-lg text-sm font-medium transition inline-flex items-center space-x-1.5 {% if request.url.path == '/' or request.url.path.startswith('/community') or request.url.path.startswith('/sources') %}bg-slate-800 text-amber-400{% else %}text-slate-300 hover:text-white hover:bg-slate-800/60{% endif %}">
                         <span>Dashboard</span>
-                        <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-400 transition-transform duration-200 group-hover:rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                        <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" id="dashboard-nav-chevron" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
-                    </a>
-                    <div class="absolute left-0 mt-1.5 w-48 rounded-xl bg-slate-900/95 border border-slate-800 shadow-2xl py-1.5 hidden group-hover:block z-50 backdrop-blur">
+                    </button>
+                    <div id="dashboard-nav-dropdown" data-popover class="absolute left-0 mt-1.5 w-48 rounded-xl bg-slate-900/95 border border-slate-800 shadow-2xl py-1.5 hidden z-50 backdrop-blur">
                         <a href="/" class="flex items-center space-x-2 px-3.5 py-2 text-xs font-semibold transition {% if request.url.path == '/' %}text-amber-400 bg-slate-800/60{% else %}text-slate-300 hover:text-white hover:bg-slate-800/40{% endif %}">
                             <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
                                 <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
@@ -525,6 +525,35 @@
             }
         }
 
+        // Generic click/tap-toggle popover controller (touch-friendly replacement
+        // for CSS-only hover/group-hover tooltips and dropdowns). Any element with
+        // id="<id>" and the data-popover attribute can be toggled by calling
+        // togglePopover('<id>'). Opening one popover closes any other open ones.
+        // A matching chevron element with id="<id-without-suffix>-chevron" style
+        // rotation is handled automatically if present (see dashboard-nav-chevron).
+        function togglePopover(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const isOpen = !el.classList.contains('hidden');
+            document.querySelectorAll('[data-popover]').forEach(function(p) {
+                if (p.id !== id) {
+                    p.classList.add('hidden');
+                    const trigger = document.querySelector('[aria-controls="' + p.id + '"]') ||
+                        document.querySelector('[onclick="togglePopover(\'' + p.id + '\')"]');
+                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                }
+            });
+            if (isOpen) {
+                el.classList.add('hidden');
+            } else {
+                el.classList.remove('hidden');
+            }
+            const trigger = document.querySelector('[onclick="togglePopover(\'' + id + '\')"]');
+            if (trigger) trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+            const chevron = document.getElementById(id.replace('-dropdown', '') + '-chevron');
+            if (chevron) chevron.classList.toggle('rotate-180', !isOpen);
+        }
+
         function toggleMobileMenu() {
             const menu = document.getElementById('mobile-menu');
             const hamburger = document.getElementById('hamburger-icon');
@@ -553,6 +582,19 @@
                     if (chevron) chevron.classList.remove('rotate-180');
                 }
             }
+
+            // Generic data-popover elements (nav dropdown, info tooltips, etc.)
+            document.querySelectorAll('[data-popover]').forEach(function(p) {
+                if (p.classList.contains('hidden')) return;
+                const trigger = document.querySelector('[onclick="togglePopover(\'' + p.id + '\')"]');
+                const withinTrigger = trigger && trigger.contains(event.target);
+                if (!p.contains(event.target) && !withinTrigger) {
+                    p.classList.add('hidden');
+                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                    const chev = document.getElementById(p.id.replace('-dropdown', '') + '-chevron');
+                    if (chev) chev.classList.remove('rotate-180');
+                }
+            });
         });
 
         document.addEventListener('keydown', function(event) {
@@ -571,6 +613,15 @@
                     if (hamburger) hamburger.classList.remove('hidden');
                     if (close) close.classList.add('hidden');
                 }
+
+                document.querySelectorAll('[data-popover]').forEach(function(p) {
+                    if (p.classList.contains('hidden')) return;
+                    p.classList.add('hidden');
+                    const trigger = document.querySelector('[onclick="togglePopover(\'' + p.id + '\')"]');
+                    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+                    const chev = document.getElementById(p.id.replace('-dropdown', '') + '-chevron');
+                    if (chev) chev.classList.remove('rotate-180');
+                });
             }
         });
 
