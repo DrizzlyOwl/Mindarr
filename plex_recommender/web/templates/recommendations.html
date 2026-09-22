@@ -3,11 +3,87 @@
 {% block title %}Unseen Recommendations{% endblock %}
 
 {% block content %}
+<style>
+    /* Upvote: card lifts up with a green "boosting weight" glow */
+    @keyframes boostWeightPulse {
+        0%   { transform: translateY(0) scale(1); }
+        35%  { transform: translateY(-10px) scale(1.015); }
+        100% { transform: translateY(-4px) scale(1); }
+    }
+    .vote-boost-anim {
+        animation: boostWeightPulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+    .vote-boosted {
+        transform: translateY(-4px);
+        border-color: rgb(16 185 129 / 0.6) !important;
+        box-shadow: 0 10px 30px -8px rgb(16 185 129 / 0.35), 0 0 0 1px rgb(16 185 129 / 0.25);
+    }
+
+    /* Downvote: card sinks down with a red "reducing weight" glow, then fades into the background */
+    @keyframes reduceWeightPulse {
+        0%   { transform: translateY(0) scale(1); }
+        35%  { transform: translateY(10px) scale(0.98); }
+        100% { transform: translateY(6px) scale(0.98); }
+    }
+    .vote-reduce-anim {
+        animation: reduceWeightPulse 0.5s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+    }
+    .vote-reduced {
+        transform: translateY(6px) scale(0.98);
+        border-color: rgb(244 63 94 / 0.5) !important;
+        filter: grayscale(55%);
+        opacity: 0.45;
+    }
+    .vote-reduced:hover {
+        opacity: 0.85;
+        filter: grayscale(20%);
+    }
+
+    /* Floating weight-change indicator badge */
+    .weight-indicator {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 50;
+        pointer-events: none;
+        font-weight: 900;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 0.4rem 0.9rem;
+        border-radius: 9999px;
+        box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.5);
+        opacity: 0;
+    }
+    @keyframes weightBoostFloat {
+        0%   { opacity: 0; transform: translate(-50%, -40%) scale(0.85); }
+        20%  { opacity: 1; transform: translate(-50%, -60%) scale(1.05); }
+        70%  { opacity: 1; transform: translate(-50%, -85%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -105%) scale(0.95); }
+    }
+    @keyframes weightReduceFloat {
+        0%   { opacity: 0; transform: translate(-50%, -60%) scale(0.85); }
+        20%  { opacity: 1; transform: translate(-50%, -40%) scale(1.05); }
+        70%  { opacity: 1; transform: translate(-50%, -15%) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, 5%) scale(0.95); }
+    }
+    .weight-indicator-boost {
+        background: rgb(16 185 129 / 0.95);
+        color: #022c22;
+        animation: weightBoostFloat 0.9s ease-out forwards;
+    }
+    .weight-indicator-reduce {
+        background: rgb(244 63 94 / 0.95);
+        color: #4c0519;
+        animation: weightReduceFloat 0.9s ease-out forwards;
+    }
+</style>
 <div class="space-y-6">
 
     <!-- Header & Filter Bar -->
-    <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6">
             <div>
                 <h1 class="text-2xl font-bold text-white tracking-tight">Unseen Content Recommendations</h1>
                 <div class="flex flex-wrap items-center gap-3 mt-1">
@@ -17,46 +93,7 @@
                 </div>
             </div>
 
-            <!-- Filter Form -->
-            <form id="filter-form" method="GET" action="/recommendations" class="flex flex-wrap items-center gap-3">
-
-                <!-- Media Type -->
-                <select name="type" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="all" {% if selected_type == 'all' %}selected{% endif %}>All Formats</option>
-                    <option value="movie" {% if selected_type == 'movie' %}selected{% endif %}>Movies Only</option>
-                    <option value="show" {% if selected_type == 'show' %}selected{% endif %}>TV Shows Only</option>
-                </select>
-
-                <!-- Category Filter -->
-                <select name="genre" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="">All Categories</option>
-                    {% for g in category_options or profile.top_genres %}
-                    {% set g_name = g if g is string else g.genre %}
-                    <option value="{{ g_name }}" {% if selected_genre and (selected_genre == g_name or selected_genre|lower == g_name|lower) %}selected{% endif %}>{{ g_name }}</option>
-                    {% endfor %}
-                </select>
-
-                <!-- Spoken Language Filter -->
-                <select name="language" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="en" {% if selected_language == 'en' %}selected{% endif %}>English (EN)</option>
-                    <option value="all" {% if selected_language == 'all' %}selected{% endif %}>All Languages</option>
-                    <option value="ja" {% if selected_language == 'ja' %}selected{% endif %}>Japanese (JA)</option>
-                    <option value="ko" {% if selected_language == 'ko' %}selected{% endif %}>Korean (KO)</option>
-                    <option value="fr" {% if selected_language == 'fr' %}selected{% endif %}>French (FR)</option>
-                    <option value="es" {% if selected_language == 'es' %}selected{% endif %}>Spanish (ES)</option>
-                    <option value="de" {% if selected_language == 'de' %}selected{% endif %}>German (DE)</option>
-                    <option value="it" {% if selected_language == 'it' %}selected{% endif %}>Italian (IT)</option>
-                    <option value="da" {% if selected_language == 'da' %}selected{% endif %}>Danish (DA)</option>
-                    <option value="sv" {% if selected_language == 'sv' %}selected{% endif %}>Swedish (SV)</option>
-                    <option value="no" {% if selected_language == 'no' %}selected{% endif %}>Norwegian (NO)</option>
-                    <option value="nl" {% if selected_language == 'nl' %}selected{% endif %}>Dutch (NL)</option>
-                    <option value="zh" {% if selected_language == 'zh' %}selected{% endif %}>Chinese (ZH)</option>
-                    <option value="pt" {% if selected_language == 'pt' %}selected{% endif %}>Portuguese (PT)</option>
-                    <option value="hi" {% if selected_language == 'hi' %}selected{% endif %}>Hindi (HI)</option>
-                    <option value="ru" {% if selected_language == 'ru' %}selected{% endif %}>Russian (RU)</option>
-                    <option value="pl" {% if selected_language == 'pl' %}selected{% endif %}>Polish (PL)</option>
-                </select>
-
+            <div class="flex items-center gap-2 shrink-0">
                 <!-- Tuned Preferences Modal Trigger -->
                 <button type="button" onclick="openHiddenModal()" class="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition" title="View your votes, marked seen, and hidden titles">
                     <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
@@ -65,28 +102,98 @@
                     <span>Tuned Preferences</span>
                 </button>
 
-                <!-- Min Rating -->
-                <select name="min_rating" class="bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
-                    <option value="7.0" {% if min_rating == 7.0 %}selected{% endif %}>Rating 7.0+</option>
-                    <option value="7.5" {% if min_rating == 7.5 %}selected{% endif %}>Rating 7.5+</option>
-                    <option value="8.0" {% if min_rating == 8.0 %}selected{% endif %}>Rating 8.0+</option>
-                </select>
+                <!-- Filters Drawer Toggle -->
+                <button type="button" id="filters-toggle-btn" onclick="toggleFiltersDrawer()" class="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">
+                    <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    <span>Filters</span>
+                    <span id="filters-active-badge" class="hidden ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-gray-950 text-[10px] font-black"></span>
+                    <svg id="filters-toggle-chevron" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+            </div>
+        </div>
 
-                <!-- Available on Plex only toggle -->
-                <label id="available-label" class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_available %}ring-1 ring-emerald-500 border-emerald-500/60{% endif %}">
-                    <input type="checkbox" name="available" value="1" {% if selected_available %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-emerald-500 focus:ring-emerald-500">
-                    <span class="text-sm {% if selected_available %}text-emerald-400 font-semibold{% else %}text-slate-300{% endif %}">On Plex only</span>
-                </label>
+        <!-- Active Filter Pills Summary (visible when drawer is collapsed & filters differ from defaults) -->
+        <div id="active-filter-pills" class="hidden flex flex-wrap items-center gap-1.5 px-6 pb-4 -mt-2"></div>
 
-                <!-- Include kids/family content toggle (excluded by default) -->
-                <label id="kids-label" class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_include_kids %}ring-1 ring-sky-500 border-sky-500/60{% endif %}">
-                    <input type="checkbox" name="include_kids" value="1" {% if selected_include_kids %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-sky-500 focus:ring-sky-500">
-                    <span class="text-sm {% if selected_include_kids %}text-sky-400 font-semibold{% else %}text-slate-300{% endif %}">Include kids</span>
-                </label>
+        <!-- Collapsible Filter Drawer -->
+        <div id="filters-drawer" class="hidden border-t border-slate-800 px-6 py-5">
+            <form id="filter-form" method="GET" action="/recommendations" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
 
-                <noscript>
-                    <button type="submit" class="px-3 py-2 rounded-lg bg-amber-500 text-gray-900 text-xs font-bold">Apply</button>
-                </noscript>
+                <!-- Column 1: Format & Category -->
+                <div class="space-y-3">
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Format &amp; Category</div>
+                    <select name="type" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                        <option value="all" {% if selected_type == 'all' %}selected{% endif %}>All Formats</option>
+                        <option value="movie" {% if selected_type == 'movie' %}selected{% endif %}>Movies Only</option>
+                        <option value="show" {% if selected_type == 'show' %}selected{% endif %}>TV Shows Only</option>
+                    </select>
+                    <select name="genre" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                        <option value="">All Categories</option>
+                        {% for g in category_options or profile.top_genres %}
+                        {% set g_name = g if g is string else g.genre %}
+                        <option value="{{ g_name }}" {% if selected_genre and (selected_genre == g_name or selected_genre|lower == g_name|lower) %}selected{% endif %}>{{ g_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Column 2: Rating & Language -->
+                <div class="space-y-3">
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Rating &amp; Language</div>
+                    <select name="min_rating" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                        <option value="7.0" {% if min_rating == 7.0 %}selected{% endif %}>Rating 7.0+</option>
+                        <option value="7.5" {% if min_rating == 7.5 %}selected{% endif %}>Rating 7.5+</option>
+                        <option value="8.0" {% if min_rating == 8.0 %}selected{% endif %}>Rating 8.0+</option>
+                    </select>
+                    <select name="language" class="w-full bg-slate-800 border border-slate-700 text-sm text-slate-200 rounded-lg px-3 py-2 focus:ring-amber-500 focus:border-amber-500">
+                        <option value="en" {% if selected_language == 'en' %}selected{% endif %}>English (EN)</option>
+                        <option value="all" {% if selected_language == 'all' %}selected{% endif %}>All Languages</option>
+                        <option value="ja" {% if selected_language == 'ja' %}selected{% endif %}>Japanese (JA)</option>
+                        <option value="ko" {% if selected_language == 'ko' %}selected{% endif %}>Korean (KO)</option>
+                        <option value="fr" {% if selected_language == 'fr' %}selected{% endif %}>French (FR)</option>
+                        <option value="es" {% if selected_language == 'es' %}selected{% endif %}>Spanish (ES)</option>
+                        <option value="de" {% if selected_language == 'de' %}selected{% endif %}>German (DE)</option>
+                        <option value="it" {% if selected_language == 'it' %}selected{% endif %}>Italian (IT)</option>
+                        <option value="da" {% if selected_language == 'da' %}selected{% endif %}>Danish (DA)</option>
+                        <option value="sv" {% if selected_language == 'sv' %}selected{% endif %}>Swedish (SV)</option>
+                        <option value="no" {% if selected_language == 'no' %}selected{% endif %}>Norwegian (NO)</option>
+                        <option value="nl" {% if selected_language == 'nl' %}selected{% endif %}>Dutch (NL)</option>
+                        <option value="zh" {% if selected_language == 'zh' %}selected{% endif %}>Chinese (ZH)</option>
+                        <option value="pt" {% if selected_language == 'pt' %}selected{% endif %}>Portuguese (PT)</option>
+                        <option value="hi" {% if selected_language == 'hi' %}selected{% endif %}>Hindi (HI)</option>
+                        <option value="ru" {% if selected_language == 'ru' %}selected{% endif %}>Russian (RU)</option>
+                        <option value="pl" {% if selected_language == 'pl' %}selected{% endif %}>Polish (PL)</option>
+                    </select>
+                </div>
+
+                <!-- Column 3: Availability & Audience -->
+                <div class="space-y-3">
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Availability &amp; Audience</div>
+                    <!-- Available on Plex only toggle -->
+                    <label id="available-label" class="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_available %}ring-1 ring-emerald-500 border-emerald-500/60{% endif %}">
+                        <input type="checkbox" name="available" value="1" {% if selected_available %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-emerald-500 focus:ring-emerald-500">
+                        <span class="text-sm {% if selected_available %}text-emerald-400 font-semibold{% else %}text-slate-300{% endif %}">On Plex only</span>
+                    </label>
+
+                    <!-- Include kids/family content toggle (excluded by default) -->
+                    <label id="kids-label" class="flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer select-none {% if selected_include_kids %}ring-1 ring-sky-500 border-sky-500/60{% endif %}">
+                        <input type="checkbox" name="include_kids" value="1" {% if selected_include_kids %}checked{% endif %} class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-sky-500 focus:ring-sky-500">
+                        <span class="text-sm {% if selected_include_kids %}text-sky-400 font-semibold{% else %}text-slate-300{% endif %}">Include kids</span>
+                    </label>
+                </div>
+
+                <div class="lg:col-span-3 flex items-center justify-end gap-2 pt-1 border-t border-slate-800/60">
+                    <button type="button" onclick="resetFilters()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        <span>Reset to Defaults</span>
+                    </button>
+                    <noscript>
+                        <button type="submit" class="px-3 py-2 rounded-lg bg-amber-500 text-gray-900 text-xs font-bold">Apply</button>
+                    </noscript>
+                </div>
             </form>
         </div>
     </div>
@@ -172,6 +279,108 @@
             }
             form.genre.innerHTML = html;
         }
+
+        // --- Collapsible Filters Drawer ---
+        const filtersDrawer = document.getElementById('filters-drawer');
+        const filtersToggleBtn = document.getElementById('filters-toggle-btn');
+        const filtersChevron = document.getElementById('filters-toggle-chevron');
+        const filtersActiveBadge = document.getElementById('filters-active-badge');
+        const activeFilterPillsEl = document.getElementById('active-filter-pills');
+        const FILTERS_DRAWER_STORAGE_KEY = 'mindarr_filters_drawer_open';
+
+        const FILTER_DEFAULTS = { type: 'all', genre: '', language: 'en', min_rating: '7.0', available: false, include_kids: false };
+
+        function getActiveFilterDescriptors() {
+            if (!form) return [];
+            const descriptors = [];
+            if (form.type.value !== FILTER_DEFAULTS.type) {
+                const label = form.type.options[form.type.selectedIndex]?.textContent || form.type.value;
+                descriptors.push({ key: 'type', label, reset: () => { form.type.value = FILTER_DEFAULTS.type; } });
+            }
+            if (form.genre.value !== FILTER_DEFAULTS.genre) {
+                descriptors.push({ key: 'genre', label: form.genre.value, reset: () => { form.genre.value = FILTER_DEFAULTS.genre; } });
+            }
+            if (form.language.value !== FILTER_DEFAULTS.language) {
+                const label = form.language.options[form.language.selectedIndex]?.textContent || form.language.value;
+                descriptors.push({ key: 'language', label, reset: () => { form.language.value = FILTER_DEFAULTS.language; } });
+            }
+            if (form.min_rating.value !== FILTER_DEFAULTS.min_rating) {
+                descriptors.push({ key: 'min_rating', label: `Rating ${form.min_rating.value}+`, reset: () => { form.min_rating.value = FILTER_DEFAULTS.min_rating; } });
+            }
+            if (form.available.checked !== FILTER_DEFAULTS.available) {
+                descriptors.push({ key: 'available', label: 'On Plex only', reset: () => { form.available.checked = false; syncAvailableStyle(); } });
+            }
+            if (form.include_kids.checked !== FILTER_DEFAULTS.include_kids) {
+                descriptors.push({ key: 'include_kids', label: 'Include kids', reset: () => { form.include_kids.checked = false; syncKidsStyle(); } });
+            }
+            return descriptors;
+        }
+
+        function renderActiveFilterSummary() {
+            const active = getActiveFilterDescriptors();
+            if (filtersActiveBadge) {
+                if (active.length > 0) {
+                    filtersActiveBadge.textContent = String(active.length);
+                    filtersActiveBadge.classList.remove('hidden');
+                } else {
+                    filtersActiveBadge.classList.add('hidden');
+                }
+            }
+            if (!activeFilterPillsEl) return;
+            const drawerOpen = filtersDrawer && !filtersDrawer.classList.contains('hidden');
+            if (drawerOpen || active.length === 0) {
+                activeFilterPillsEl.classList.add('hidden');
+                activeFilterPillsEl.innerHTML = '';
+                return;
+            }
+            activeFilterPillsEl.classList.remove('hidden');
+            activeFilterPillsEl.innerHTML = active.map((d, i) => `
+                <button type="button" data-pill-index="${i}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-medium transition">
+                    <span>${d.label}</span>
+                    <svg class="w-3 h-3 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </button>
+            `).join('');
+            activeFilterPillsEl.querySelectorAll('[data-pill-index]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const idx = parseInt(btn.dataset.pillIndex, 10);
+                    const descriptor = active[idx];
+                    if (descriptor) {
+                        descriptor.reset();
+                        currentPage = 1;
+                        loadRecommendations();
+                    }
+                });
+            });
+        }
+
+        function setFiltersDrawerOpen(open, persist) {
+            if (!filtersDrawer) return;
+            filtersDrawer.classList.toggle('hidden', !open);
+            if (filtersChevron) filtersChevron.classList.toggle('rotate-180', open);
+            if (filtersToggleBtn) filtersToggleBtn.classList.toggle('bg-slate-700', open);
+            if (persist !== false) {
+                try { localStorage.setItem(FILTERS_DRAWER_STORAGE_KEY, open ? '1' : '0'); } catch (e) {}
+            }
+            renderActiveFilterSummary();
+        }
+
+        function toggleFiltersDrawer() {
+            const isOpen = filtersDrawer && !filtersDrawer.classList.contains('hidden');
+            setFiltersDrawerOpen(!isOpen);
+        }
+        window.toggleFiltersDrawer = toggleFiltersDrawer;
+
+        // Restore drawer state: open by default if any non-default filter is active, else respect saved preference (default collapsed).
+        (function initFiltersDrawer() {
+            let savedOpen = null;
+            try {
+                const raw = localStorage.getItem(FILTERS_DRAWER_STORAGE_KEY);
+                if (raw !== null) savedOpen = raw === '1';
+            } catch (e) {}
+            const hasActiveFilters = getActiveFilterDescriptors().length > 0;
+            const shouldOpen = savedOpen !== null ? savedOpen : hasActiveFilters;
+            setFiltersDrawerOpen(shouldOpen, false);
+        })();
 
         function skeletonCards(count) {
             let cards = '';
@@ -262,6 +471,7 @@
             form.include_kids.checked = false;
             syncAvailableStyle();
             syncKidsStyle();
+            renderActiveFilterSummary();
             currentPage = 1;
             loadRecommendations();
         }
@@ -435,11 +645,13 @@
         // Wire up filter changes -> re-fetch (no page reload).
         form.type.addEventListener('change', function () {
             updateCategoryDropdown();
+            renderActiveFilterSummary();
         });
 
         form.addEventListener('change', function () {
             syncAvailableStyle();
             syncKidsStyle();
+            renderActiveFilterSummary();
             currentPage = 1; // Reset to first page when filters change.
             loadRecommendations();
         });
@@ -535,12 +747,89 @@
         }
     }
 
+    // --- Weight-tuning visual feedback (upvote "boost" / downvote "reduce") ---
+    function showWeightIndicator(card, type) {
+        if (!card) return;
+        const el = document.createElement('div');
+        const isBoost = type === 'boost';
+        el.className = `weight-indicator ${isBoost ? 'weight-indicator-boost' : 'weight-indicator-reduce'}`;
+        el.textContent = isBoost ? '▲ Weight Boosted' : '▼ Weight Reduced';
+        card.appendChild(el);
+        setTimeout(() => el.remove(), 950);
+    }
+
+    function playBoostAnimation(card) {
+        if (!card) return;
+        card.classList.remove('vote-reduce-anim', 'vote-reduced');
+        card.classList.add('vote-boost-anim');
+        showWeightIndicator(card, 'boost');
+        setTimeout(() => {
+            card.classList.remove('vote-boost-anim');
+            card.classList.add('vote-boosted');
+        }, 550);
+    }
+
+    function clearBoostAnimation(card) {
+        if (!card) return;
+        card.classList.remove('vote-boost-anim', 'vote-boosted');
+    }
+
+    function playReduceAnimation(card) {
+        if (!card) return;
+        card.classList.remove('vote-boost-anim', 'vote-boosted');
+        card.classList.add('vote-reduce-anim');
+        showWeightIndicator(card, 'reduce');
+        setTimeout(() => {
+            card.classList.remove('vote-reduce-anim');
+            card.classList.add('vote-reduced');
+        }, 500);
+    }
+
+    function clearReduceAnimation(card) {
+        if (!card) return;
+        card.classList.remove('vote-reduce-anim', 'vote-reduced', 'hidden', 'scale-95', 'opacity-0', 'pointer-events-none');
+    }
+
     async function thumbsDown(tmdbId, mediaType, title, year, btn) {
         const card = document.getElementById(`card-${tmdbId}`);
-        if (card) {
-            card.classList.add('transition-all', 'duration-300', 'scale-95', 'opacity-0');
-            setTimeout(() => card.classList.add('hidden'), 300);
+        const isDownvoted = btn && btn.dataset.downvoted === '1';
+        if (btn) btn.disabled = true;
+
+        if (isDownvoted) {
+            // Already downvoted — clicking again removes the downvote and restores the card.
+            const form = new FormData();
+            form.append('tmdb_id', tmdbId);
+            try {
+                const res = await fetch('/api/recommendations/unvote', {
+                    method: 'POST',
+                    body: form
+                });
+                const data = await res.json();
+                if (btn) btn.disabled = false;
+                if (data.success) {
+                    if (btn) {
+                        btn.dataset.downvoted = '0';
+                        btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border-slate-700/60 hover:border-rose-500/40';
+                        btn.title = "Thumbs down — don't recommend this";
+                    }
+                    clearReduceAnimation(card);
+                    if (typeof showToast === 'function') {
+                        showToast(`Removed thumbs down for "${title || 'Title'}".`, 'info');
+                    }
+                }
+            } catch (e) {
+                if (btn) btn.disabled = false;
+                if (typeof showToast === 'function') {
+                    showToast('Failed to remove vote: ' + e, 'error');
+                }
+            }
+            return;
         }
+
+        // Highlight with a red "reducing weight" flash + sink animation, then settle
+        // into a faded, desaturated background state — the card stays in place
+        // instead of being yanked out of the grid immediately.
+        playReduceAnimation(card);
 
         const form = new FormData();
         form.append('tmdb_id', tmdbId);
@@ -555,29 +844,39 @@
                 body: form
             });
             const data = await res.json();
+            if (btn) btn.disabled = false;
             if (data.success) {
+                if (btn) {
+                    btn.dataset.downvoted = '1';
+                    btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-rose-500/20 text-rose-400 border-rose-500/40';
+                    btn.title = 'Downvoted — click to remove';
+                }
                 if (typeof showToast === 'function') {
-                    showToast(`Dismissed "${title || 'Title'}" with thumbs down.`, 'info', 5000, {
+                    showToast(`Reduced weight for "${title || 'Title'}". It'll surface less often.`, 'info', 5000, {
                         text: 'Undo',
-                        onClick: () => unvoteRecommendation(tmdbId)
+                        onClick: () => thumbsDown(tmdbId, mediaType, title, year, btn)
                     });
                 }
             } else {
-                if (card) card.classList.remove('hidden', 'scale-95', 'opacity-0');
+                clearReduceAnimation(card);
+                if (btn) btn.disabled = false;
                 if (typeof showToast === 'function') {
                     showToast(data.error || 'Failed to record thumbs down.', 'error');
                 }
             }
         } catch (e) {
-            if (card) card.classList.remove('hidden', 'scale-95', 'opacity-0');
+            clearReduceAnimation(card);
+            if (btn) btn.disabled = false;
             if (typeof showToast === 'function') {
                 showToast('Error recording thumbs down: ' + e, 'error');
             }
         }
     }
 
+
     async function toggleVote(tmdbId, mediaType, title, year, targetVote, btn) {
         const isUpvoted = btn.dataset.upvoted === '1';
+        const card = document.getElementById(`card-${tmdbId}`);
         btn.disabled = true;
 
         if (isUpvoted) {
@@ -595,6 +894,7 @@
                     btn.dataset.upvoted = '0';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60';
                     btn.title = 'Thumbs up — recommend more like this';
+                    clearBoostAnimation(card);
                     if (typeof showToast === 'function') {
                         showToast(`Removed thumbs up for "${title || 'Title'}".`, 'info');
                     }
@@ -625,6 +925,8 @@
                     btn.dataset.upvoted = '1';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-amber-500/20 text-amber-400 border-amber-500/40';
                     btn.title = 'Upvoted — click to remove';
+                    // Highlight with a green "boosting weight" flash + upward lift animation.
+                    playBoostAnimation(card);
                     if (typeof showToast === 'function') {
                         showToast(`Thumbs up! Recommendations will lean into "${title || 'Title'}".`, 'success', 5000, {
                             text: 'Undo',
@@ -652,8 +954,19 @@
             const data = await res.json();
             if (data.success) {
                 const card = document.getElementById(`card-${tmdbId}`);
-                if (card) {
-                    card.classList.remove('hidden', 'scale-95', 'opacity-0', 'pointer-events-none');
+                clearReduceAnimation(card);
+                clearBoostAnimation(card);
+                const upBtn = document.getElementById(`vote-up-${tmdbId}`);
+                if (upBtn) {
+                    upBtn.dataset.upvoted = '0';
+                    upBtn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60';
+                    upBtn.title = 'Thumbs up — recommend more like this';
+                }
+                const downBtn = document.getElementById(`vote-down-${tmdbId}`);
+                if (downBtn) {
+                    downBtn.dataset.downvoted = '0';
+                    downBtn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border-slate-700/60 hover:border-rose-500/40';
+                    downBtn.title = "Thumbs down — don't recommend this";
                 }
                 const row = document.getElementById(`tuned-row-${tmdbId}`);
                 if (row) {
@@ -674,6 +987,7 @@
             }
         }
     }
+
 
     async function undismissRecommendation(tmdbId, btn) {
         if (btn) {
