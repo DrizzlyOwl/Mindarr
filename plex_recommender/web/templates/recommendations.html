@@ -78,6 +78,63 @@
         color: #4c0519;
         animation: weightReduceFloat 0.9s ease-out forwards;
     }
+
+    /* Poster containers: native 2:3 movie/TV poster aspect ratio (zero cropping). */
+    .poster-container-2-3 {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        background-color: rgb(2 6 23); /* slate-950 */
+    }
+
+    /* Columns density slider: switches the recommendation grid between 2, 3, and 4 columns. */
+    .recs-card-grid {
+        display: grid;
+        gap: 1.5rem;
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+    }
+    @media (min-width: 640px) {
+        .recs-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (min-width: 1024px) {
+        .recs-card-grid.recs-grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .recs-card-grid.recs-grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .recs-card-grid.recs-grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    /* Custom range slider styling for the columns density control */
+    #columns-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 88px;
+        height: 4px;
+        border-radius: 9999px;
+        background: rgb(51 65 85); /* slate-700 */
+        outline: none;
+        cursor: pointer;
+    }
+    #columns-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        background: rgb(245 158 11); /* amber-500 */
+        border: 2px solid rgb(15 23 42);
+        cursor: pointer;
+        transition: transform 0.15s ease;
+    }
+    #columns-slider::-webkit-slider-thumb:hover {
+        transform: scale(1.15);
+    }
+    #columns-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        background: rgb(245 158 11);
+        border: 2px solid rgb(15 23 42);
+        cursor: pointer;
+    }
 </style>
 <div class="space-y-6">
 
@@ -94,6 +151,16 @@
             </div>
 
             <div class="flex items-center gap-2 shrink-0">
+                <!-- Columns Density Slider (hidden on mobile; grid is fixed at 1-2 cols there) -->
+                <div class="hidden lg:flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" title="Adjust how many recommendation cards are shown per row">
+                    <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                    <span class="text-xs font-semibold text-slate-300">Columns</span>
+                    <input type="range" id="columns-slider" min="2" max="4" step="1" value="3" aria-label="Number of columns">
+                    <span id="columns-value" class="text-xs font-mono font-bold text-amber-400 w-3 text-center">3</span>
+                </div>
+
                 <!-- Tuned Preferences Modal Trigger -->
                 <button type="button" onclick="openHiddenModal()" class="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition" title="View your votes, marked seen, and hidden titles">
                     <svg class="w-3.5 h-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
@@ -211,10 +278,10 @@
         </div>
 
         <!-- Skeleton Loading Grid -->
-        <div id="recs-skeleton" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300">
+        <div id="recs-skeleton" class="recs-card-grid recs-grid-cols-3 transition-opacity duration-300">
             {% for _ in range(6) %}
             <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-pulse">
-                <div class="h-64 bg-slate-800/60"></div>
+                <div class="poster-container-2-3 bg-slate-800/60"></div>
                 <div class="p-5 space-y-4">
                     <div class="h-10 bg-slate-800/60 rounded-lg"></div>
                     <div class="flex gap-1.5">
@@ -382,12 +449,56 @@
             setFiltersDrawerOpen(shouldOpen, false);
         })();
 
+        // --- Columns Density Slider (2 / 3 / 4 columns) ---
+        const COLUMNS_STORAGE_KEY = 'mindarr_recs_columns';
+        const columnsSlider = document.getElementById('columns-slider');
+        const columnsValueEl = document.getElementById('columns-value');
+        let currentColumns = 3;
+
+        function getColumnsClass() {
+            return `recs-grid-cols-${currentColumns}`;
+        }
+        window.getColumnsClass = getColumnsClass;
+
+        function applyColumnsToGrids() {
+            document.querySelectorAll('.recs-card-grid').forEach((grid) => {
+                grid.classList.remove('recs-grid-cols-2', 'recs-grid-cols-3', 'recs-grid-cols-4');
+                grid.classList.add(getColumnsClass());
+            });
+        }
+
+        function setColumns(value, persist) {
+            const n = Math.min(4, Math.max(2, parseInt(value, 10) || 3));
+            currentColumns = n;
+            if (columnsSlider) columnsSlider.value = String(n);
+            if (columnsValueEl) columnsValueEl.textContent = String(n);
+            applyColumnsToGrids();
+            if (persist !== false) {
+                try { localStorage.setItem(COLUMNS_STORAGE_KEY, String(n)); } catch (e) {}
+            }
+        }
+        window.setColumns = setColumns;
+
+        if (columnsSlider) {
+            columnsSlider.addEventListener('input', () => setColumns(columnsSlider.value));
+        }
+
+        // Restore saved column density preference (defaults to 3).
+        (function initColumnsSlider() {
+            let saved = null;
+            try {
+                const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+                if (raw !== null) saved = parseInt(raw, 10);
+            } catch (e) {}
+            setColumns(saved || 3, false);
+        })();
+
         function skeletonCards(count) {
             let cards = '';
             for (let i = 0; i < count; i++) {
                 cards += `
                 <div class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-pulse">
-                    <div class="h-64 bg-slate-800/60"></div>
+                    <div class="poster-container-2-3 bg-slate-800/60"></div>
                     <div class="p-5 space-y-4">
                         <div class="h-10 bg-slate-800/60 rounded-lg"></div>
                         <div class="flex gap-1.5">
@@ -420,7 +531,7 @@
                     </svg>
                     <span class="font-medium">${text}</span>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300" data-skeleton-grid>${skeletonCards(6)}</div>`;
+                <div class="recs-card-grid ${getColumnsClass()} transition-opacity duration-300" data-skeleton-grid>${skeletonCards(6)}</div>`;
         }
 
         function currentParams(extra) {
@@ -481,7 +592,7 @@
             return new Promise((resolve) => {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(dataFast.html || '', 'text/html');
-                const fastGrid = doc.querySelector('.grid');
+                const fastGrid = doc.querySelector('.recs-card-grid');
                 if (!fastGrid || !fastGrid.children.length) {
                     resolve();
                     return;
@@ -496,7 +607,7 @@
                         <span class="font-medium">Loaded instant discover matches. Finding deep seed recommendations…</span>
                     </div>
                 `;
-                resultsEl.innerHTML = statusHtml + `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-skeleton-grid>${cardsHtml}${skeletonCards(6)}</div>`;
+                resultsEl.innerHTML = statusHtml + `<div class="recs-card-grid ${getColumnsClass()}" data-skeleton-grid>${cardsHtml}${skeletonCards(6)}</div>`;
                 resolve();
             });
         }
@@ -564,6 +675,7 @@
                 const loading = resultsEl.querySelector('#recs-loading');
                 const finish = () => {
                     resultsEl.innerHTML = html;
+                    applyColumnsToGrids();
                     const grid = resultsEl.firstElementChild;
                     if (grid) {
                         grid.classList.add('transition-opacity', 'duration-300', 'opacity-0');

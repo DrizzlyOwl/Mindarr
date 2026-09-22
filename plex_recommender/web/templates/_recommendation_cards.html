@@ -167,13 +167,13 @@
 {% else %}
 
 <!-- Recommendation Cards Grid -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+<div class="recs-card-grid recs-grid-cols-3" id="final-recs-grid">
     {% for item in results.recommendations %}
     <div id="card-{{ item.tmdb_id }}" class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl flex flex-col hover:border-slate-700 transition-all duration-300 group relative hover:z-40 focus-within:z-40">
 
         {% if not low_bandwidth and item.poster_url %}
         <!-- Standard Poster Header -->
-        <div class="relative h-64 bg-slate-950 rounded-t-2xl">
+        <div class="poster-container-2-3 rounded-t-2xl">
             <!-- Inner image wrapper with overflow-hidden for rounded corners & zoom hover -->
             <div class="absolute inset-0 overflow-hidden rounded-t-2xl">
                 <img src="{{ item.poster_url }}" alt="{{ item.title }}" class="w-full h-full object-cover object-center group-hover:scale-105 transition duration-300" loading="lazy">
