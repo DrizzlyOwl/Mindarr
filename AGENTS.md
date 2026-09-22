@@ -217,13 +217,16 @@ migrations (e.g. `watch_events.source`) and one-time data reconciliation.
 ## Releases & versioning
 - Canonical version lives in `plex_recommender/__init__.py` (`__version__`) and
   must be kept in sync with `pyproject.toml`'s `[project] version`.
-- **Every version bump must be tagged and published as a GitHub release.**
-  After merging the version bump:
-  1. `git tag -a vX.Y.Z -m "vX.Y.Z: <short summary>"`
-  2. `git push origin main --tags` (or push the tag explicitly)
-  3. `gh release create vX.Y.Z --title "vX.Y.Z: <short summary>" --notes "<changelog>"`
-- Do not tag/release without an accompanying version bump commit, and don't bump
-  the version without eventually tagging + releasing it.
+- **Tagging and releasing is automated.** The `tag-release` job in
+  `.github/workflows/docker-build.yml` runs after the `build` job succeeds on every
+  push to `main`. It compares `__version__` in `plex_recommender/__init__.py` between
+  the pushed commit and its parent; if the version changed (and the corresponding
+  `vX.Y.Z` tag doesn't already exist on `origin`), it creates and pushes an annotated
+  tag and runs `gh release create vX.Y.Z --generate-notes`. It fails loudly if
+  `__version__` and `pyproject.toml`'s version are out of sync.
+- To cut a release: bump `__version__` and `pyproject.toml`'s version together in the
+  same commit/PR, merge to `main`, and the workflow tags + releases it automatically
+  once the Docker build succeeds. No manual `git tag` / `gh release create` needed.
 
 ## Gotchas
 - No CLI — the app is web-only; don't reintroduce `cli.py` entry points.
