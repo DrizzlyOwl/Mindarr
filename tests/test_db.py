@@ -1,23 +1,11 @@
 import pytest
 from plex_recommender.config import settings
-from plex_recommender.db import (
-    init_db,
-    upsert_user_media,
-    upsert_media_item,
-    record_watch_event,
-    is_seen,
-    get_user_seen_index,
-    get_user_media_items,
-    get_stats,
-    normalize_title,
-    create_or_update_user,
-    delete_user,
-    get_user,
-    get_watch_events,
-    get_top_watched,
-    get_connection,
-    _migrate_normalize_media_item_ids,
-)
+from plex_recommender.db import init_db, get_connection
+from plex_recommender.db._util import normalize_title
+from plex_recommender.db.media import upsert_media_item
+from plex_recommender.db.migrations import _migrate_normalize_media_item_ids
+from plex_recommender.db.users import create_or_update_user, delete_user, get_user
+from plex_recommender.db.watch import upsert_user_media, record_watch_event, is_seen, get_user_seen_index, get_user_media_items, get_stats, get_watch_events, get_top_watched
 
 USER = "u1"
 
@@ -307,7 +295,7 @@ def test_stats_reporting():
 
 
 def test_upsert_preserves_genres_when_incoming_empty():
-    from plex_recommender.db import get_user_media_items
+    from plex_recommender.db.watch import get_user_media_items
     # First upsert with genres (e.g. from a library scan / show metadata)
     upsert_user_media(USER, {
         "item_id": "show_1", "media_type": "show", "title": "Show",
@@ -323,10 +311,8 @@ def test_upsert_preserves_genres_when_incoming_empty():
 
 
 def test_database_stats_and_clear_user_data():
-    from plex_recommender.db import (
-        get_database_stats, get_user_data_summary, clear_user_data,
-        record_watch_event, has_user_history,
-    )
+    from plex_recommender.db.users import get_database_stats, get_user_data_summary, clear_user_data
+    from plex_recommender.db.watch import record_watch_event, has_user_history
     upsert_user_media(USER, {
         "item_id": "s1", "media_type": "show", "title": "Show",
         "year": 2021, "genres": ["Comedy"], "tmdb_id": "111",
@@ -350,7 +336,7 @@ def test_database_stats_and_clear_user_data():
 
 
 def test_watch_event_reconciliation_plex_primary():
-    from plex_recommender.db import get_watch_events
+    from plex_recommender.db.watch import get_watch_events
 
     # 1. Ingest Plex event (short title, 0 duration, end time)
     record_watch_event({
@@ -384,7 +370,7 @@ def test_watch_event_reconciliation_plex_primary():
 
 
 def test_watch_event_distinct_sessions_not_deduped():
-    from plex_recommender.db import get_watch_events
+    from plex_recommender.db.watch import get_watch_events
 
     # Ingest watch session on day 1
     record_watch_event({
@@ -440,7 +426,7 @@ def test_delete_user_cleans_all_records():
 
 
 def test_user_dismissals_crud():
-    from plex_recommender.db import dismiss_item, undismiss_item, get_user_dismissals
+    from plex_recommender.db.engagement import dismiss_item, undismiss_item, get_user_dismissals
 
     dismiss_item(USER, tmdb_id="12345", media_type="movie", title="The Matrix", year=1999, reason="already_watched")
     dismiss_item(USER, tmdb_id="67890", media_type="show", title="Bad Show", year=2020, reason="not_interested")
@@ -460,13 +446,7 @@ def test_user_dismissals_crud():
 def test_system_logs_retention_and_truncation():
     import logging
     import time
-    from plex_recommender.db import (
-        insert_system_log,
-        get_system_logs,
-        truncate_system_logs,
-        clear_all_system_logs,
-        SQLiteLogHandler
-    )
+    from plex_recommender.db.logs import insert_system_log, get_system_logs, truncate_system_logs, clear_all_system_logs, SQLiteLogHandler
 
     now = time.time()
     ten_days_ago = now - (10 * 86400)
@@ -523,17 +503,11 @@ def test_system_logs_retention_and_truncation():
 
 
 def test_user_votes_crud_and_migration():
-    from plex_recommender.db import (
-        record_vote,
-        remove_vote,
-        get_user_votes,
-        get_user_vote_items,
-        dismiss_item,
-        get_connection,
-        _migrate_hidden_cards_to_votes,
-        clear_user_data,
-        is_seen
-    )
+    from plex_recommender.db import get_connection
+    from plex_recommender.db.engagement import record_vote, remove_vote, get_user_votes, get_user_vote_items, dismiss_item
+    from plex_recommender.db.migrations import _migrate_hidden_cards_to_votes
+    from plex_recommender.db.users import clear_user_data
+    from plex_recommender.db.watch import is_seen
 
     uk = "vote_test_user"
     clear_user_data(uk)
@@ -588,12 +562,8 @@ def test_user_votes_crud_and_migration():
 
 
 def test_get_user_action_counts():
-    from plex_recommender.db import (
-        get_user_action_counts,
-        record_vote,
-        dismiss_item,
-        clear_user_data
-    )
+    from plex_recommender.db.engagement import get_user_action_counts, record_vote, dismiss_item
+    from plex_recommender.db.users import clear_user_data
 
     uk = "action_counts_user"
     clear_user_data(uk)

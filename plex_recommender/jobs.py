@@ -4,20 +4,20 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Callable
 
 from plex_recommender.config import settings
-from plex_recommender.db import (
-    start_job,
-    finish_job,
-    get_all_users,
-    get_user,
-    has_user_history,
-    truncate_system_logs,
-)
+from plex_recommender.db.jobs import start_job, finish_job
+from plex_recommender.db.users import get_all_users, get_user
+from plex_recommender.db.watch import has_user_history
+from plex_recommender.db.logs import truncate_system_logs
 from plex_recommender.sync import (
     sync_plex_data,
     sync_user_history,
     discover_and_register_shared_users,
 )
 from plex_recommender.recommender import recommender
+from plex_recommender.discovery.tmdb import tmdb
+from plex_recommender.discovery.overseerr import overseerr
+from plex_recommender.discovery.tautulli import tautulli
+from plex_recommender.health import record_health, clear_health
 from plex_recommender.poster_cache import sweep_expired_posters, POSTER_TTL_DAYS
 
 logger = logging.getLogger("plex_recommender.jobs")
@@ -45,6 +45,12 @@ JOB_DEFINITIONS = {
         "id": "poster_cleanup",
         "name": "Poster Cache Cleanup",
         "description": f"Deletes cached TMDb posters not accessed within {POSTER_TTL_DAYS} days.",
+        "default_trigger": "scheduled",
+    },
+    "healthcheck": {
+        "id": "healthcheck",
+        "name": "Integration Health Check",
+        "description": "Tests TMDb, Overseerr, and Tautulli connectivity and flags failures for admins.",
         "default_trigger": "scheduled",
     },
 }
@@ -250,7 +256,7 @@ class JobManager:
                 progress_callback(msg, prog)
 
         try:
-            if not settings.tmdb_api_key:
+            if not tmdb.is_configured():
                 err = "TMDb API key is not configured. Cannot generate recommendations."
                 logger.warning("Job 'User Recommendations' (ID: %s) skipped: %s", job_id, err)
                 finish_job(job_id, "failed", err)
@@ -426,6 +432,94 @@ class JobManager:
         finally:
             with self._lock:
                 self.running_jobs.pop("poster_cleanup", None)
+
+    def run_healthcheck(
+        self,
+        trigger: str = "scheduled",
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+    ) -> Dict[str, Any]:
+        """Test TMDb/Overseerr/Tautulli connectivity and persist results for the admin health banner.
+
+        TMDb is required, so it is always checked (a missing/invalid key is
+        itself the failure). Overseerr and Tautulli are optional and are
+        skipped silently (health cleared, not marked unhealthy) when not
+        configured. Tautulli's server-mismatch check is folded into its
+        health result: a reachable Tautulli monitoring the wrong Plex server
+        is treated as unhealthy.
+        """
+        with self._lock:
+            if "healthcheck" in self.running_jobs:
+                return {
+                    "success": False,
+                    "error": "Health check job is already in progress.",
+                    "already_running": True,
+                }
+            self.running_jobs["healthcheck"] = {
+                "job_type": "healthcheck",
+                "trigger": trigger,
+                "started_at": datetime.now().isoformat(),
+                "status": "Starting integration health check...",
+                "progress": 0.0,
+                "error": None,
+                "job_id": None,
+            }
+
+        job_id = start_job("healthcheck", trigger=trigger)
+        with self._lock:
+            if "healthcheck" in self.running_jobs:
+                self.running_jobs["healthcheck"]["job_id"] = job_id
+
+        logger.info("Job 'Integration Health Check' (ID: %s) started [trigger: %s]", job_id, trigger)
+
+        def _update_progress(msg: str, pct: float):
+            with self._lock:
+                if "healthcheck" in self.running_jobs:
+                    self.running_jobs["healthcheck"]["status"] = msg
+                    self.running_jobs["healthcheck"]["progress"] = pct
+            if progress_callback:
+                progress_callback(msg, pct)
+
+        try:
+            results = []
+
+            _update_progress("Testing TMDb connectivity...", 0.15)
+            tmdb_ok, tmdb_msg = tmdb.test_connection()
+            record_health("tmdb", tmdb_ok, tmdb_msg)
+            results.append(f"TMDb: {'OK' if tmdb_ok else tmdb_msg}")
+
+            _update_progress("Testing Overseerr connectivity...", 0.45)
+            if overseerr.is_configured():
+                ov_ok, ov_msg = overseerr.test_connection()
+                record_health("overseerr", ov_ok, ov_msg)
+                results.append(f"Overseerr: {'OK' if ov_ok else ov_msg}")
+            else:
+                clear_health("overseerr")
+                results.append("Overseerr: not configured")
+
+            _update_progress("Testing Tautulli connectivity...", 0.75)
+            if tautulli.is_configured():
+                tt_ok, tt_msg = tautulli.test_connection()
+                if tt_ok and not tautulli.monitors_server(settings.plex_machine_id):
+                    tt_ok = False
+                    tt_msg = "Reachable, but monitors a different Plex server than the one linked here."
+                record_health("tautulli", tt_ok, tt_msg)
+                results.append(f"Tautulli: {'OK' if tt_ok else tt_msg}")
+            else:
+                clear_health("tautulli")
+                results.append("Tautulli: not configured")
+
+            detail = "; ".join(results)
+            _update_progress("Health check complete.", 1.0)
+            finish_job(job_id, "success", detail)
+            logger.info("Job 'Integration Health Check' (ID: %s) completed: %s", job_id, detail)
+            return {"success": True, "job_id": job_id, "detail": detail}
+        except Exception as e:
+            logger.error(f"Health check job error: {e}")
+            finish_job(job_id, "failed", str(e))
+            return {"success": False, "job_id": job_id, "error": str(e)}
+        finally:
+            with self._lock:
+                self.running_jobs.pop("healthcheck", None)
 
 
 job_manager = JobManager()

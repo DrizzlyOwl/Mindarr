@@ -123,6 +123,26 @@ uvicorn plex_recommender.web.app:app --host 0.0.0.0 --port 8080
 python -m plex_recommender
 ```
 
+### Rebuilding CSS after template changes
+
+Tailwind CSS is compiled ahead of time into `plex_recommender/web/static/css/tailwind.css`
+(committed to the repo) rather than loaded from the CDN, so there's no build step required
+to run the app. If you edit any Jinja template's classes, recompile it with the
+[standalone Tailwind CLI](https://tailwindcss.com/blog/standalone-cli) (no Node.js required)
+and commit the updated file:
+
+```bash
+# macOS (Apple Silicon) example — see the release page above for other platforms
+curl -sLo tailwindcss https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.17/tailwindcss-macos-arm64
+chmod +x tailwindcss
+
+./tailwindcss \
+  -i ./plex_recommender/web/static/css/input.css \
+  -o ./plex_recommender/web/static/css/tailwind.css \
+  --config ./tailwind.config.js \
+  --minify
+```
+
 ---
 
 ## Web Dashboard Usage

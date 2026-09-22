@@ -1,9 +1,8 @@
 import time
 import pytest
 from plex_recommender.config import settings
-from plex_recommender.db import (
-    init_db, start_job, finish_job, get_job_history, clear_job_history,
-)
+from plex_recommender.db import init_db
+from plex_recommender.db.jobs import start_job, finish_job, get_job_history, clear_job_history
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +58,7 @@ def test_history_ordered_and_clearable():
 
 
 def test_upsert_discovered_user_and_preserves_token():
-    from plex_recommender.db import upsert_discovered_user, get_user, create_or_update_user
+    from plex_recommender.db.users import upsert_discovered_user, get_user, create_or_update_user
     # Insert newly discovered user
     upsert_discovered_user({
         "user_key": "u100",
@@ -96,7 +95,9 @@ def test_upsert_discovered_user_and_preserves_token():
 
 def test_job_manager_recommendations_prefetches_and_caches(monkeypatch):
     from plex_recommender.jobs import JobManager
-    from plex_recommender.db import create_or_update_user, upsert_user_media, get_cached_recommendations, set_setting
+    from plex_recommender.db.recommendations import get_cached_recommendations, set_setting
+    from plex_recommender.db.users import create_or_update_user
+    from plex_recommender.db.watch import upsert_user_media
     monkeypatch.setattr(settings, "tmdb_api_key", "test_tmdb_key")
 
     create_or_update_user({
@@ -169,5 +170,101 @@ def test_job_manager_truncate_logs(monkeypatch):
     assert len(log_jobs) == 1
     assert log_jobs[0]["status"] == "success"
     assert "older than 7 days" in log_jobs[0]["detail"]
+
+
+def test_healthcheck_job_all_healthy(monkeypatch):
+    from plex_recommender.jobs import JobManager, JOB_DEFINITIONS, tmdb, overseerr, tautulli
+    from plex_recommender.health import get_all_health
+    assert "healthcheck" in JOB_DEFINITIONS
+
+    monkeypatch.setattr(tmdb, "test_connection", lambda: (True, "Connected to TMDb"))
+    monkeypatch.setattr(overseerr, "is_configured", lambda: True)
+    monkeypatch.setattr(overseerr, "test_connection", lambda: (True, "Connected to Overseerr v1.0"))
+    monkeypatch.setattr(tautulli, "is_configured", lambda: True)
+    monkeypatch.setattr(tautulli, "test_connection", lambda: (True, "Connected to Tautulli"))
+    monkeypatch.setattr(tautulli, "monitors_server", lambda machine_id: True)
+
+    jm = JobManager()
+    res = jm.run_healthcheck(trigger="manual")
+    assert res["success"] is True
+
+    health = get_all_health()
+    assert health["tmdb"]["ok"] is True
+    assert health["overseerr"]["ok"] is True
+    assert health["tautulli"]["ok"] is True
+
+    history = get_job_history()
+    hc_jobs = [j for j in history if j["job_type"] == "healthcheck"]
+    assert len(hc_jobs) == 1
+    assert hc_jobs[0]["status"] == "success"
+
+
+def test_healthcheck_job_tmdb_failure_flags_unhealthy(monkeypatch):
+    from plex_recommender.jobs import JobManager, tmdb, overseerr, tautulli
+    from plex_recommender.health import get_unhealthy
+
+    monkeypatch.setattr(tmdb, "test_connection", lambda: (False, "TMDb authentication failed: invalid API key."))
+    monkeypatch.setattr(overseerr, "is_configured", lambda: False)
+    monkeypatch.setattr(tautulli, "is_configured", lambda: False)
+
+    jm = JobManager()
+    res = jm.run_healthcheck(trigger="manual")
+    assert res["success"] is True  # the job itself completes; it just records a failing integration
+
+    unhealthy = get_unhealthy()
+    assert "tmdb" in unhealthy
+    assert "invalid API key" in unhealthy["tmdb"]["message"]
+
+
+def test_healthcheck_job_skips_unconfigured_optional_integrations(monkeypatch):
+    from plex_recommender.jobs import JobManager, tmdb, overseerr, tautulli
+    from plex_recommender.health import get_all_health
+
+    monkeypatch.setattr(tmdb, "test_connection", lambda: (True, "Connected to TMDb"))
+    monkeypatch.setattr(overseerr, "is_configured", lambda: False)
+    monkeypatch.setattr(tautulli, "is_configured", lambda: False)
+
+    jm = JobManager()
+    res = jm.run_healthcheck(trigger="manual")
+    assert res["success"] is True
+    assert "not configured" in res["detail"]
+
+    health = get_all_health()
+    # Never checked (or cleared) -> ok is None, not False; must not appear as "unhealthy"
+    assert health["overseerr"]["ok"] is None
+    assert health["tautulli"]["ok"] is None
+
+
+def test_healthcheck_job_tautulli_server_mismatch_flagged_unhealthy(monkeypatch):
+    from plex_recommender.jobs import JobManager, tmdb, overseerr, tautulli
+    from plex_recommender.health import get_health
+
+    monkeypatch.setattr(tmdb, "test_connection", lambda: (True, "Connected to TMDb"))
+    monkeypatch.setattr(overseerr, "is_configured", lambda: False)
+    monkeypatch.setattr(tautulli, "is_configured", lambda: True)
+    monkeypatch.setattr(tautulli, "test_connection", lambda: (True, "Connected to Tautulli"))
+    monkeypatch.setattr(tautulli, "monitors_server", lambda machine_id: False)
+
+    jm = JobManager()
+    res = jm.run_healthcheck(trigger="manual")
+    assert res["success"] is True
+
+    status = get_health("tautulli")
+    assert status["ok"] is False
+    assert "different Plex server" in status["message"]
+
+
+def test_healthcheck_job_concurrency_blocks_duplicate():
+    from plex_recommender.jobs import JobManager
+    jm = JobManager()
+    jm.running_jobs["healthcheck"] = {
+        "job_type": "healthcheck",
+        "trigger": "manual",
+        "status": "Running...",
+        "progress": 50.0,
+    }
+    res = jm.run_healthcheck(trigger="manual")
+    assert res["success"] is False
+    assert res["already_running"] is True
 
 

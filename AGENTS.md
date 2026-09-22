@@ -8,8 +8,10 @@ optionally enriched via Tautulli), builds a taste profile, and recommends unseen
 movies/shows via TMDb, with optional 1-click Overseerr requests.
 
 ## Tech stack
-- Python >=3.9, FastAPI + Uvicorn, Jinja2 templates (`plex_recommender/web/templates`), Tailwind (CDN)
-- SQLite via stdlib `sqlite3` (raw SQL, no ORM) in `db.py`
+- Python >=3.9, FastAPI + Uvicorn, Jinja2 templates (`plex_recommender/web/templates`),
+  Tailwind CSS (compiled ahead-of-time to `plex_recommender/web/static/css/tailwind.css`,
+  committed to the repo — see README for rebuild steps; no CDN/JIT at runtime)
+- SQLite via stdlib `sqlite3` (raw SQL, no ORM) in `db/`
 - plexapi + `requests` (Plex, TMDb, Overseerr, Tautulli, plex.tv OAuth)
 - APScheduler for background sync
 - pytest (`tests/`); config in `pyproject.toml` (`pythonpath=["."]`, `testpaths=["tests"]`)
@@ -19,7 +21,12 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
   `save_setting()` persists to `.env`. Snapshots real OS/Docker env vars at import
   (`ENV_MANAGED_KEYS`); `settings.is_locked(key)` reports env-managed (locked) settings
   and `save_setting()` is a no-op for them.
-- `plex_recommender/db.py` — schema (`init_db()`) + all data access
+- `plex_recommender/db/` — package split by concern (schema + connection factory in
+  `__init__.py`, migrations in `migrations.py`, shared helpers in `_util.py`, and
+  data access in `media.py`, `watch.py`, `users.py`, `recommendations.py`,
+  `engagement.py` (votes/dismissals), `jobs.py` (job_history), `logs.py` (system_logs)).
+  Import from the specific submodule, e.g.
+  `from plex_recommender.db.watch import get_user_media_items`.
 - `plex_recommender/auth.py` — Plex OAuth PIN flow, plex.tv identity/access, shared user discovery
 - `plex_recommender/sync.py` — shared Plex library metadata scan + per-user history
   (Plex API primary, Tautulli enrichment), shared user auto-registration
@@ -28,26 +35,41 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - `plex_recommender/analyzer.py` — `TasteAnalyzer` (genre/creator/decade scoring, recency
   decay, narrative `summary` with cited metrics + data-source provenance)
 - `plex_recommender/recommender.py` — `ContentRecommender` (TMDb discovery, seen-exclusion, cache)
+- `plex_recommender/community.py` — anonymized cross-user leaderboard/comparison/badges,
+  sourced from Tautulli when configured or the local DB otherwise (`/community` route)
+- `plex_recommender/poster_cache.py` — local on-disk TMDb poster image caching with TTL sweep
+- `plex_recommender/health.py` — persisted integration health status (TMDb/Overseerr/Tautulli)
+  backed by `app_settings`; written by the `healthcheck` background job, read by the
+  admin health banner (`layout.html`) and the Settings page status badges.
+- `plex_recommender/logs.py` — `LogHandler`, a `logging.Handler` that persists app log
+  records into the `system_logs` table for the admin-only `/logs` viewer
 - `plex_recommender/discovery/` — `tmdb.py`, `overseerr.py`, `tautulli.py`
 - `plex_recommender/web/app.py` — routes, sessions, scheduler lifespan, sync concurrency guard
 - `plex_recommender/web/templates/` — `layout.html`, `login.html`, `index.html`,
-  `recommendations.html`, `settings.html`, `jobs.html`, `system.html`, `welcome.html`
+  `recommendations.html`, `settings.html`, `jobs.html`, `system.html`, `welcome.html`,
+  `community.html`, `logs.html`, `sources.html`
 - `plex_recommender/__main__.py` — `python -m plex_recommender` launches uvicorn
 
 ## Conventions
 - **API clients:** class-based, mirroring `discovery/overseerr.py` — constructor reads
   `base_url`/`api_key` from `settings` with fallback, `_get_headers()`/`_request()` helpers,
-  `test_connection() -> (bool, str)`, module-level singleton at bottom. Use
-  `logging.getLogger(__name__)` and `requests` timeouts. Never raise to callers for
-  optional integrations — degrade gracefully.
+  `test_connection() -> (bool, str)`, `is_configured() -> bool`, module-level singleton at
+  bottom. `api_key`/`base_url` are `@property` that read `settings` live (not a snapshot at
+  construction), so config changes (e.g. a corrected API key) take effect without a process
+  restart. Use `logging.getLogger(__name__)` and `requests` timeouts. Never raise to callers
+  for optional integrations — degrade gracefully.
 - **DB:** raw SQL; open via `get_connection()` (Row factory), commit + close each op.
   JSON-encode list fields (genres/directors/etc.). Use `INSERT OR IGNORE`/`ON CONFLICT`.
 - **Config:** add new settings to both `__init__` and `reload()`; env keys UPPER_SNAKE,
   attributes lower_snake. Secrets stored in `config/.env`, never committed. Values set via
   real OS/Docker env vars are locked (see `ENV_MANAGED_KEYS` / `settings.is_locked`);
   Settings UI disables those inputs.
-- **Local Plex over HTTPS:** SSL verification disabled via `requests.Session(verify=False)`
-  (LAN IPs); keep `urllib3` warnings suppressed.
+- **Local Plex over HTTPS:** SSL verification is scoped per-host via
+  `http_client.make_session(base_url)` — disabled only for LAN/private/loopback
+  hosts or `.local`/`localhost` (typical for a self-signed local Plex server),
+  auto-suppressing the `urllib3` insecure-request warning; public hosts (e.g.
+  plex.tv) always verify. Use this factory instead of constructing
+  `requests.Session()` directly for any Plex/local-network HTTP call.
 
 ## Multi-user model (Overseerr-style)
 - Login via Plex OAuth PIN; identity from `plex.tv /users/account.json`.
@@ -134,11 +156,30 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
   summary with last-seen (`get_user_data_summary`), and per-user data wipe
   (`clear_user_data`, keeps the account, resets watch data + recs).
 
+## Integration health monitoring
+- `JobManager.run_healthcheck()` (job id `healthcheck`, scheduled every
+  `HEALTHCHECK_INTERVAL_HOURS`, default 1h) tests TMDb/Overseerr/Tautulli connectivity via
+  each client's `test_connection()` and persists results via `health.record_health()`.
+- **TMDb is required** and always checked (a missing/invalid key is itself the failure).
+  **Overseerr/Tautulli are optional**: checked only when `is_configured()`; otherwise their
+  health is cleared (`health.clear_health()`), never flagged unhealthy, so admins who
+  deliberately skip an optional integration aren't nagged.
+- **Tautulli's server-mismatch check is folded in**: a reachable Tautulli that
+  `monitors_server()` a different Plex server than the one linked here is recorded as
+  unhealthy (same condition Settings already warns about live, now also caught proactively).
+- Persisted in `app_settings` as `health_<name>_ok/message/checked_at` (name: `tmdb`,
+  `overseerr`, `tautulli`) — no schema migration needed.
+- Surfaced via a persistent (non-dismissible) admin-only banner in `layout.html`, rendered
+  from the Jinja global `get_unhealthy_integrations()` (registered in `web/app.py`), plus a
+  live TMDb status badge on the Settings page (mirroring the existing Overseerr/Tautulli
+  badges) computed fresh on every page load via `tmdb.test_connection()`.
+
 ## Database tables
 `users` (has `onboarded_at`, `last_seen_at`), `user_media`, `media_items`, `watch_events`
 (has `source`), `seen_identifiers` (PK includes `user_key`), `recommendations_cache`,
-`job_history`, `app_settings`.
-`_migrate_add_columns()` handles additive column migrations (e.g. `watch_events.source`).
+`job_history`, `app_settings`, `user_dismissals`, `user_votes`, `system_logs`.
+`db.migrations.run_all()` (called from `db.init_db()`) handles additive column
+migrations (e.g. `watch_events.source`) and one-time data reconciliation.
 
 ## Recommendations cache
 - Keyed by `user_key` + filters; invalidated when `last_sync_time` changes. Clear via
@@ -194,3 +235,10 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - Plex history filters on the **server-local** account id, never the plex.tv `user_key`.
 - `SESSION_SECRET` auto-generates into `config/.env` on first run; changing it invalidates
   all active sessions.
+- `SESSION_HTTPS_ONLY` (default `false`) sets the `Secure` flag on the session cookie.
+  Only enable it when the app is served over TLS (directly or behind a reverse proxy);
+  enabling it over plain HTTP silently breaks login since the browser will refuse to
+  send the cookie back.
+- **Tailwind is compiled, not CDN.** Editing a template's classes has no visible effect
+  until you recompile `plex_recommender/web/static/css/tailwind.css` (see README) and
+  commit the updated file — there is no runtime JIT fallback anymore.

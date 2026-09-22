@@ -8,6 +8,15 @@ def test_overseerr_headers():
     assert headers["X-Api-Key"] == "my_secret_key"
     assert headers["Accept"] == "application/json"
 
+def test_overseerr_is_configured(monkeypatch):
+    import plex_recommender.discovery.overseerr as overseerr_module
+    monkeypatch.setattr(overseerr_module.settings, "overseerr_api_key", None)
+
+    assert OverseerrClient(base_url="http://test:5055", api_key="key").is_configured() is True
+    assert OverseerrClient(base_url="", api_key="key").is_configured() is False
+    assert OverseerrClient(base_url="http://test:5055", api_key=None).is_configured() is False
+    assert OverseerrClient(base_url="", api_key=None).is_configured() is False
+
 @patch("requests.get")
 def test_overseerr_test_connection_success(mock_get):
     mock_resp = MagicMock()

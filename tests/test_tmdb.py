@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch, MagicMock
 from plex_recommender.discovery.tmdb import TMDbClient, MOVIE_GENRES, TV_GENRES
 
 def test_genre_mapping():
@@ -171,4 +172,74 @@ def test_tmdb_get_web_url():
 
     # Movies must link to /movie/
     assert client.get_web_url(27205, media_type="movie") == "https://www.themoviedb.org/movie/27205"
+
+
+def test_is_configured(monkeypatch):
+    import plex_recommender.discovery.tmdb as tmdb_module
+    assert TMDbClient(api_key="test_key").is_configured() is True
+
+    monkeypatch.setattr(tmdb_module.settings, "tmdb_api_key", None)
+    assert TMDbClient(api_key=None).is_configured() is False
+
+
+def test_api_key_reads_live_from_settings(monkeypatch):
+    """Regression test: api_key must not be frozen at construction time, so a
+    key change in Settings takes effect without a process restart."""
+    import plex_recommender.discovery.tmdb as tmdb_module
+
+    monkeypatch.setattr(tmdb_module.settings, "tmdb_api_key", "old_key")
+    client = TMDbClient()
+    assert client.api_key == "old_key"
+
+    monkeypatch.setattr(tmdb_module.settings, "tmdb_api_key", "new_key")
+    assert client.api_key == "new_key"
+
+
+def test_explicit_api_key_override_takes_precedence(monkeypatch):
+    import plex_recommender.discovery.tmdb as tmdb_module
+
+    monkeypatch.setattr(tmdb_module.settings, "tmdb_api_key", "settings_key")
+    client = TMDbClient(api_key="explicit_key")
+    assert client.api_key == "explicit_key"
+
+
+def test_test_connection_not_configured(monkeypatch):
+    import plex_recommender.discovery.tmdb as tmdb_module
+    monkeypatch.setattr(tmdb_module.settings, "tmdb_api_key", None)
+
+    client = TMDbClient(api_key=None)
+    success, msg = client.test_connection()
+    assert success is False
+    assert "not configured" in msg.lower()
+
+
+@patch("requests.Session.get")
+def test_test_connection_success(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"success": True}
+    mock_resp.raise_for_status.return_value = None
+    mock_get.return_value = mock_resp
+
+    client = TMDbClient(api_key="test_key")
+    success, msg = client.test_connection()
+    assert success is True
+    assert "Connected" in msg
+
+
+@patch("requests.Session.get")
+def test_test_connection_unauthorized(mock_get):
+    import requests
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 401
+    http_err = requests.exceptions.HTTPError(response=mock_resp)
+    mock_resp.raise_for_status.side_effect = http_err
+    mock_get.return_value = mock_resp
+
+    client = TMDbClient(api_key="bad_key")
+    success, msg = client.test_connection()
+    assert success is False
+    assert "invalid" in msg.lower()
+
 

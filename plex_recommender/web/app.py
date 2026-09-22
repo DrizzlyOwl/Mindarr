@@ -14,19 +14,25 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from plex_recommender import __version__
 from plex_recommender.config import settings
 from plex_recommender.logs import log_handler, LogHandler
-from plex_recommender.db import (
-    init_db, get_stats, set_setting, get_setting, clear_recommendations_cache,
-    clear_user_recommendations_cache,
+from plex_recommender.db import init_db
+from plex_recommender.db.watch import (
+    get_stats, has_user_history, get_enriched_watch_events, get_watch_source_breakdown,
+)
+from plex_recommender.db.recommendations import (
+    set_setting, get_setting, clear_recommendations_cache, clear_user_recommendations_cache,
+)
+from plex_recommender.db.users import (
     admin_exists, get_admin, get_user, get_all_users, create_or_update_user,
-    has_user_history, start_job, finish_job, get_job_history, clear_job_history,
     get_database_stats, get_user_data_summary, clear_user_data,
-    get_enriched_watch_events, get_watch_source_breakdown,
+    touch_last_seen, mark_onboarded,
+)
+from plex_recommender.db.jobs import start_job, finish_job, get_job_history, clear_job_history
+from plex_recommender.db.engagement import (
     dismiss_item, undismiss_item, get_user_dismissals,
     record_vote, remove_vote, get_user_votes, get_user_vote_items,
     get_user_action_counts,
-    get_system_logs, truncate_system_logs, clear_all_system_logs,
-    touch_last_seen, mark_onboarded,
 )
+from plex_recommender.db.logs import get_system_logs, truncate_system_logs, clear_all_system_logs
 from plex_recommender.auth import (
     create_plex_pin, check_plex_pin, verify_plex_connection,
     get_plex_account, get_server_machine_id, check_user_access,
@@ -35,17 +41,19 @@ from plex_recommender.sync import sync_plex_data, sync_user_history
 from plex_recommender.analyzer import analyzer
 from plex_recommender.recommender import recommender
 from plex_recommender.community import community_service
-from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categories
+from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categories, tmdb
 from plex_recommender.discovery.overseerr import overseerr
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.jobs import job_manager, JOB_DEFINITIONS
 from plex_recommender.poster_cache import get_cached_poster_url, get_cached_poster_url_from_source
+from plex_recommender.health import get_unhealthy
 
 logger = logging.getLogger("plex_recommender.web")
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["app_version"] = __version__
+templates.env.globals["get_unhealthy_integrations"] = get_unhealthy
 
 SESSION_MAX_AGE = 3600  # 1 hour
 
@@ -64,7 +72,7 @@ def scheduled_sync_job():
 
 def scheduled_recommendations_job():
     """Background scheduled recommendations pre-fetch job."""
-    if not settings.tmdb_api_key:
+    if not tmdb.is_configured():
         logger.info("Skipping scheduled recommendations: No TMDb API key.")
         return
     logger.info("Starting scheduled recommendations pre-fetch...")
@@ -81,6 +89,12 @@ def scheduled_poster_cleanup_job():
     """Background scheduled job: delete cached posters not accessed within the TTL window."""
     logger.info("Starting scheduled poster cache cleanup...")
     job_manager.run_poster_cleanup(trigger="scheduled")
+
+
+def scheduled_healthcheck_job():
+    """Background scheduled job: test TMDb/Overseerr/Tautulli connectivity."""
+    logger.info("Starting scheduled integration health check...")
+    job_manager.run_healthcheck(trigger="scheduled")
 
 
 def get_scheduled_jobs_info():
@@ -139,6 +153,19 @@ def get_scheduled_jobs_info():
         "state": poster_st,
     })
 
+    # 5. Integration Health Check Job
+    health_job = scheduler.get_job("plex_healthcheck_job") if scheduler.running else None
+    next_health = health_job.next_run_time.isoformat() if health_job and health_job.next_run_time else None
+    health_st = job_manager.get_job_state("healthcheck")
+    jobs_info.append({
+        "id": "healthcheck",
+        "name": JOB_DEFINITIONS["healthcheck"]["name"],
+        "description": JOB_DEFINITIONS["healthcheck"]["description"],
+        "interval_hours": settings.healthcheck_interval_hours,
+        "next_run": next_health,
+        "state": health_st,
+    })
+
     return jobs_info
 
 
@@ -180,9 +207,17 @@ async def lifespan(app: FastAPI):
             id="plex_poster_cleanup_job",
             replace_existing=True
         )
+        scheduler.add_job(
+            scheduled_healthcheck_job,
+            "interval",
+            hours=settings.healthcheck_interval_hours,
+            id="plex_healthcheck_job",
+            replace_existing=True
+        )
         scheduler.start()
         logger.info(
-            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h, log truncation every 24h, poster cleanup every 24h)."
+            f"Started background scheduler (sync every {settings.auto_sync_hours}h, recs every {settings.auto_recommendations_hours}h, "
+            f"log truncation every 24h, poster cleanup every 24h, healthcheck every {settings.healthcheck_interval_hours}h)."
         )
     yield
     if scheduler.running:
@@ -222,7 +257,7 @@ def needs_first_visit_tour(user: Optional[dict]) -> bool:
 def admin_setup_incomplete() -> bool:
     """True while the admin hasn't finished the essentials: TMDb key, linked Plex server, first sync."""
     return bool(
-        not settings.tmdb_api_key
+        not tmdb.is_configured()
         or not settings.plex_machine_id
         or not get_setting("last_sync_time")
     )
@@ -258,6 +293,7 @@ app.add_middleware(
     secret_key=settings.session_secret,
     max_age=SESSION_MAX_AGE,
     same_site="lax",
+    https_only=settings.session_https_only,
 )
 
 
@@ -453,7 +489,7 @@ def recommendations_page(
     # Surface only the setup-blocking errors up front; data errors are handled
     # by the async endpoint and rendered client-side.
     error_msg = None
-    if not settings.tmdb_api_key:
+    if not tmdb.is_configured():
         error_msg = "TMDb API Key is not configured. Please ask your administrator to add it in Settings."
     elif not profile.get("has_data"):
         error_msg = "No watch history available for your account. Recommendations require Tautulli history."
@@ -476,7 +512,7 @@ def recommendations_page(
             "settings": settings,
             "current_user": user,
             "recs_ready": True,
-            "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
+            "has_overseerr": overseerr.is_configured(),
             "low_bandwidth": is_low_bandwidth(request),
             "force_refresh": force_refresh,
             "user_votes": get_user_votes(user["user_key"]),
@@ -514,7 +550,7 @@ def api_recommendations(
     results = {"success": False, "recommendations": []}
     error_msg = None
 
-    if not settings.tmdb_api_key:
+    if not tmdb.is_configured():
         error_msg = "TMDb API Key is not configured. Please ask your administrator to add it in Settings."
     elif not profile.get("has_data"):
         error_msg = "No watch history available for your account. Recommendations require Tautulli history."
@@ -551,7 +587,7 @@ def api_recommendations(
             "request": request,
             "results": results,
             "error_msg": error_msg,
-            "has_overseerr": bool(settings.overseerr_url and settings.overseerr_api_key),
+            "has_overseerr": overseerr.is_configured(),
             "low_bandwidth": low_bw,
             "user_votes": get_user_votes(user["user_key"]),
             "pool_stats": user_counts,
@@ -732,6 +768,7 @@ def settings_page(request: Request):
     if settings.plex_token:
         connected, conn_msg = verify_plex_connection()
 
+    tmdb_connected, tmdb_msg = tmdb.test_connection()
     overseerr_connected, overseerr_msg = overseerr.test_connection()
     tautulli_connected, tautulli_msg = tautulli.test_connection()
 
@@ -749,6 +786,8 @@ def settings_page(request: Request):
             "settings": settings,
             "connected": connected,
             "conn_msg": conn_msg,
+            "tmdb_connected": tmdb_connected,
+            "tmdb_msg": tmdb_msg,
             "overseerr_connected": overseerr_connected,
             "overseerr_msg": overseerr_msg,
             "tautulli_connected": tautulli_connected,
@@ -767,6 +806,8 @@ def settings_page(request: Request):
                 "TAUTULLI_API_KEY": settings.is_locked("TAUTULLI_API_KEY"),
                 "AUTO_SYNC_HOURS": settings.is_locked("AUTO_SYNC_HOURS"),
                 "AUTO_RECOMMENDATIONS_HOURS": settings.is_locked("AUTO_RECOMMENDATIONS_HOURS"),
+                "HEALTHCHECK_INTERVAL_HOURS": settings.is_locked("HEALTHCHECK_INTERVAL_HOURS"),
+                "SESSION_HTTPS_ONLY": settings.is_locked("SESSION_HTTPS_ONLY"),
             },
             "low_bandwidth": is_low_bandwidth(request),
             "first_name": first_name_of(user),
@@ -786,6 +827,9 @@ def save_settings(
     tautulli_api_key: Optional[str] = Form(None),
     auto_sync_hours: Optional[str] = Form(None),
     auto_recommendations_hours: Optional[str] = Form(None),
+    healthcheck_interval_hours: Optional[str] = Form(None),
+    session_https_only: Optional[str] = Form(None),
+    security_section: Optional[str] = Form(None),
 ):
     user = get_current_user(request)
     if not user:
@@ -838,6 +882,28 @@ def save_settings(
                     scheduler.reschedule_job("plex_recommendations_job", trigger="interval", hours=val)
                 except Exception as e:
                     logger.warning(f"Failed to reschedule recommendations job: {e}")
+    if healthcheck_interval_hours is not None and healthcheck_interval_hours.strip().isdigit():
+        val = int(healthcheck_interval_hours.strip())
+        if val > 0 and val != settings.healthcheck_interval_hours:
+            settings.save_setting("HEALTHCHECK_INTERVAL_HOURS", str(val))
+            settings.healthcheck_interval_hours = val
+            changed.append(f"HEALTHCHECK_INTERVAL_HOURS={val}h")
+            if scheduler.running:
+                try:
+                    scheduler.reschedule_job("plex_healthcheck_job", trigger="interval", hours=val)
+                except Exception as e:
+                    logger.warning(f"Failed to reschedule healthcheck job: {e}")
+
+    # Checkbox: absent from form data means unchecked. Only reconcile when this
+    # request actually submitted the security section (hidden marker field),
+    # so partial wizard step submissions (which omit this section) never
+    # accidentally flip https_only off.
+    if security_section is not None:
+        https_only_val = session_https_only is not None and session_https_only.strip().lower() in ("on", "true", "1", "yes")
+        if https_only_val != settings.session_https_only:
+            settings.save_setting("SESSION_HTTPS_ONLY", "true" if https_only_val else "false")
+            settings.session_https_only = https_only_val
+            changed.append(f"SESSION_HTTPS_ONLY={https_only_val}")
 
     logger.info(
         "Admin '%s' saved configuration changes: %s",

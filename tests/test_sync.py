@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import patch
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, create_or_update_user, has_user_history
+from plex_recommender.db import init_db
+from plex_recommender.db.users import create_or_update_user
+from plex_recommender.db.watch import has_user_history
 from plex_recommender import sync
 
 USER = "1"
@@ -67,7 +69,7 @@ def test_plex_history_records_events(monkeypatch):
 
 
 def test_plex_episode_rolls_up_to_show_with_genres(monkeypatch):
-    from plex_recommender.db import get_user_media_items
+    from plex_recommender.db.watch import get_user_media_items
     monkeypatch.setattr(settings, "plex_token", "tok")
 
     class Tag:
@@ -170,7 +172,7 @@ def test_sync_library_metadata_uses_bare_ratingkey_item_id(monkeypatch):
 def test_plex_history_tallies_view_count_across_multiple_events(monkeypatch):
     """Regression test: multiple watch events for the same movie/show must
     accumulate into view_count, not collapse to 1 (MAX-based upsert bug)."""
-    from plex_recommender.db import get_user_media_items
+    from plex_recommender.db.watch import get_user_media_items
     monkeypatch.setattr(settings, "plex_token", "tok")
 
     class Tag:
@@ -267,7 +269,7 @@ def test_no_enrichment_when_no_history():
 
 
 def test_tautulli_records_history_when_matched():
-    from plex_recommender.db import get_user_media_items
+    from plex_recommender.db.watch import get_user_media_items
     history = [{"rating_key": "555", "full_title": "Some Movie", "media_type": "movie",
                 "date": 1700000000, "year": 2020}]
     meta = {"imdb_id": "tt0111161", "tmdb_id": "278", "tvdb_id": None,
@@ -309,7 +311,7 @@ def test_combined_adds_plex_and_tautulli(monkeypatch):
 
 
 def test_watch_source_breakdown_tracks_plex_and_tautulli(monkeypatch):
-    from plex_recommender.db import get_watch_source_breakdown
+    from plex_recommender.db.watch import get_watch_source_breakdown
     # Plex path
     monkeypatch.setattr(settings, "plex_token", "tok")
 
@@ -388,7 +390,8 @@ def test_plex_history_skipped_when_account_unmatched(monkeypatch):
 
 
 def test_upsert_media_items_batch():
-    from plex_recommender.db import upsert_media_items_batch, get_connection
+    from plex_recommender.db import get_connection
+    from plex_recommender.db.media import upsert_media_items_batch
     items = [
         {"item_id": f"batch_{i}", "media_type": "movie", "title": f"Batch Film {i}", "year": 2020 + i}
         for i in range(10)

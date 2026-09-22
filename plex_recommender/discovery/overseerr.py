@@ -37,6 +37,9 @@ class OverseerrClient:
             return self._api_key_override
         return settings.overseerr_api_key
 
+    def is_configured(self) -> bool:
+        return bool(self.base_url and self.api_key)
+
     def _get_headers(self) -> Dict[str, str]:
         headers = {
             "Accept": "application/json",

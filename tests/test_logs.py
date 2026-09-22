@@ -4,7 +4,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, create_or_update_user, mark_onboarded
+from plex_recommender.db import init_db
+from plex_recommender.db.users import create_or_update_user, mark_onboarded
 from plex_recommender.logs import LogHandler, log_handler
 from plex_recommender.web.app import app
 

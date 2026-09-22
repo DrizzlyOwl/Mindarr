@@ -15,24 +15,8 @@
     <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png">
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        plex: '#E5A00D',
-                        plexDark: '#CC8A00',
-                        imdb: '#F5C518',
-                        darkBg: '#0f172a',
-                        cardBg: '#1e293b'
-                    }
-                }
-            }
-        }
-    </script>
+    <!-- Tailwind CSS (compiled, production build) -->
+    <link rel="stylesheet" href="/static/css/tailwind.css">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Heroicons / FontAwesome via SVG -->
@@ -323,6 +307,22 @@
 
     <!-- Main Content Container -->
     <main class="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
+        {% if current_user and current_user.is_admin %}
+            {% set unhealthy_integrations = get_unhealthy_integrations() %}
+            {% if unhealthy_integrations %}
+            <div class="mb-6 space-y-2">
+                {% for name, status in unhealthy_integrations.items() %}
+                <div class="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm px-4 py-3 rounded-xl flex items-start justify-between gap-3">
+                    <div class="flex items-start space-x-2">
+                        <svg class="w-4 h-4 fill-current shrink-0 mt-0.5" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                        <span><span class="font-semibold">{{ name|capitalize }} connection issue:</span> {{ status.message }}</span>
+                    </div>
+                    <a href="/settings" class="shrink-0 text-xs font-bold text-rose-200 hover:text-white underline whitespace-nowrap">Fix in Settings &rarr;</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 

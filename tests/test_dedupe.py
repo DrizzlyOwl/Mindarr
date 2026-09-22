@@ -1,7 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, upsert_user_media, create_or_update_user
+from plex_recommender.db import init_db
+from plex_recommender.db.users import create_or_update_user
+from plex_recommender.db.watch import upsert_user_media
 from plex_recommender.recommender import ContentRecommender
 
 USER = "u1"
@@ -456,7 +458,7 @@ def test_romance_filter_strictly_excludes_crime_drama():
 
 
 def test_dismiss_item_excludes_candidate_and_undismiss_restores():
-    from plex_recommender.db import dismiss_item, undismiss_item, get_user_dismissals
+    from plex_recommender.db.engagement import dismiss_item, undismiss_item, get_user_dismissals
 
     # Set up watch history so recommendations have profile data
     upsert_user_media(USER, {

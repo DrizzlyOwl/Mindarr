@@ -7,13 +7,10 @@ from datetime import datetime, timezone
 
 from plex_recommender.config import settings
 from plex_recommender.discovery.tautulli import tautulli
-from plex_recommender.db import (
-    get_connection,
-    get_user_seen_index,
-    normalize_title,
-    get_all_users,
-    get_stats,
-)
+from plex_recommender.db import get_connection
+from plex_recommender.db.watch import get_user_seen_index, get_stats
+from plex_recommender.db._util import normalize_title
+from plex_recommender.db.users import get_all_users
 
 logger = logging.getLogger(__name__)
 

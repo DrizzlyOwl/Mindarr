@@ -1,16 +1,10 @@
 import pytest
 from unittest.mock import MagicMock
 from plex_recommender.config import settings
-from plex_recommender.db import (
-    init_db,
-    upsert_user_media,
-    create_or_update_user,
-    set_setting,
-    get_setting,
-    get_cached_recommendations,
-    set_cached_recommendations,
-    clear_recommendations_cache
-)
+from plex_recommender.db import init_db
+from plex_recommender.db.recommendations import set_setting, get_setting, get_cached_recommendations, set_cached_recommendations, clear_recommendations_cache
+from plex_recommender.db.users import create_or_update_user
+from plex_recommender.db.watch import upsert_user_media
 from plex_recommender.recommender import ContentRecommender
 
 USER = "u1"

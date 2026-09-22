@@ -1,37 +1,26 @@
 import logging
-import requests
-import urllib3
 from datetime import datetime, timezone
 from typing import Optional, Callable, Dict, Any, List
 from plexapi.server import PlexServer
 from plex_recommender.config import settings
-from plex_recommender.db import (
-    init_db,
-    upsert_media_item,
-    upsert_media_items_batch,
-    get_existing_keywords_map,
-    upsert_user_media,
-    record_watch_event,
-    set_setting,
-    get_stats,
-    clear_recommendations_cache,
-    get_user,
-)
+from plex_recommender.http_client import make_session
+from plex_recommender.db import init_db
+from plex_recommender.db.media import upsert_media_item, upsert_media_items_batch, get_existing_keywords_map
+from plex_recommender.db.watch import upsert_user_media, record_watch_event, get_stats
+from plex_recommender.db.recommendations import set_setting, clear_recommendations_cache
+from plex_recommender.db.users import get_user
 from plex_recommender.discovery.tautulli import tautulli
-from plex_recommender.discovery.tmdb import TMDbClient
+from plex_recommender.discovery.tmdb import tmdb
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
-
-_tmdb_client = TMDbClient()
 
 
 def _fetch_tmdb_keywords(tmdb_id: Optional[str], media_type: str) -> List[Dict[str, Any]]:
     """Best-effort TMDb keyword fetch for a watched item. Never raises."""
-    if not tmdb_id or not settings.tmdb_api_key:
+    if not tmdb_id or not tmdb.is_configured():
         return []
     try:
-        return _tmdb_client.get_keywords(int(tmdb_id), media_type=media_type)
+        return tmdb.get_keywords(int(tmdb_id), media_type=media_type)
     except Exception as e:
         logger.debug("Keyword fetch failed for %s %s: %s", media_type, tmdb_id, e)
         return []
@@ -77,8 +66,7 @@ def get_plex_instance() -> PlexServer:
     if not token:
         raise ValueError("Plex token is not configured. Run setup/auth first.")
     
-    session = requests.Session()
-    session.verify = False
+    session = make_session(url)
     return PlexServer(url, token, session=session, timeout=15)
 
 def sync_library_metadata(progress_callback: Optional[Callable[[str, float], None]] = None) -> Dict[str, Any]:
@@ -675,7 +663,7 @@ def sync_plex_data(
 def discover_and_register_shared_users() -> List[Dict[str, Any]]:
     """Discover shared users from Plex and persist them so their history can be synced."""
     from plex_recommender.auth import discover_shared_users
-    from plex_recommender.db import get_admin, upsert_discovered_user
+    from plex_recommender.db.users import get_admin, upsert_discovered_user
     admin = get_admin()
     token = (admin.get("plex_token") if admin else None) or settings.plex_token
     if not token:

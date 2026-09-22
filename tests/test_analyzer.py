@@ -1,7 +1,9 @@
 import pytest
 from datetime import datetime, timedelta
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, upsert_user_media, create_or_update_user
+from plex_recommender.db import init_db
+from plex_recommender.db.users import create_or_update_user
+from plex_recommender.db.watch import upsert_user_media
 from plex_recommender.analyzer import TasteAnalyzer, calculate_time_weight
 
 USER = "u1"

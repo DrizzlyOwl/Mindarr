@@ -276,14 +276,26 @@ def candidate_matches_genre(cand: Dict[str, Any], target_genre: Optional[str]) -
 
 class TMDbClient:
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or settings.tmdb_api_key
+        # Explicit override (mainly for tests). When None, read live from
+        # settings on each access so config changes take effect immediately
+        # without requiring a process restart.
+        self._api_key_override = api_key
         self.session = requests.Session()
         adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=2)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
+    @property
+    def api_key(self) -> Optional[str]:
+        if self._api_key_override is not None:
+            return self._api_key_override
+        return settings.tmdb_api_key
+
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
     def _get_headers_params(self, params: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, Any]]:
-        key = self.api_key or settings.tmdb_api_key
+        key = self.api_key
         if not key:
             raise ValueError("TMDb API Key is not configured. Please set TMDB_API_KEY.")
         
@@ -303,6 +315,23 @@ class TMDbClient:
         resp = sess.get(url, headers=headers, params=qparams, timeout=10)
         resp.raise_for_status()
         return resp.json()
+
+    def test_connection(self) -> Tuple[bool, str]:
+        """Test TMDb API key validity via a lightweight, side-effect-free endpoint."""
+        if not self.is_configured():
+            return False, "TMDb API Key is not configured."
+        try:
+            data = self._request("/authentication")
+            if data.get("success"):
+                return True, "Connected to TMDb"
+            return False, "TMDb authentication failed."
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status == 401:
+                return False, "TMDb authentication failed: invalid API key."
+            return False, f"TMDb request failed: HTTP {status}."
+        except Exception as e:
+            return False, f"Could not reach TMDb: {e}"
 
     def map_genres(self, genre_names: List[str], media_type: str = "movie") -> List[int]:
         """Convert string genre names into TMDb numeric genre IDs."""
@@ -507,4 +536,7 @@ class TMDbClient:
         """Get direct browser link to the title on TMDb web interface."""
         mtype = "tv" if str(media_type).lower() in ("show", "tv", "episode") else "movie"
         return f"https://www.themoviedb.org/{mtype}/{item_id}"
+
+
+tmdb = TMDbClient()
 

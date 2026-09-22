@@ -227,7 +227,9 @@ def test_build_leaderboard_single_user():
 
 
 def test_build_from_db_creates_leaderboard():
-    from plex_recommender.db import create_or_update_user, upsert_user_media, upsert_media_item
+    from plex_recommender.db.media import upsert_media_item
+    from plex_recommender.db.users import create_or_update_user
+    from plex_recommender.db.watch import upsert_user_media
     service = CommunityService()
 
     # Seed 2 users

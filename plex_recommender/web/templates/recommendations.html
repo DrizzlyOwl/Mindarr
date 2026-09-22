@@ -219,7 +219,7 @@
             params.set('type', form.type.value);
             params.set('genre', form.genre.value || '');
             params.set('language', form.language.value);
-            params.set('min_rating', form.min_rating.value);
+            params.set('min_rating', form.min_rating.value || '7.0');
             params.set('available', form.available.checked ? '1' : '0');
             params.set('include_kids', form.include_kids.checked ? '1' : '0');
             params.set('page', String(currentPage));
@@ -257,7 +257,7 @@
             updateCategoryDropdown();
             form.genre.value = '';
             form.language.value = 'en';
-            form.min_rating.value = '5.0';
+            form.min_rating.value = '7.0';
             form.available.checked = false;
             form.include_kids.checked = false;
             syncAvailableStyle();

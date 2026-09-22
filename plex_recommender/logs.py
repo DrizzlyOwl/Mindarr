@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-from plex_recommender.db import (
+from plex_recommender.db.logs import (
     insert_system_log,
     get_system_logs,
     truncate_system_logs,

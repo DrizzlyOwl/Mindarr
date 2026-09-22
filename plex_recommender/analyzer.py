@@ -2,7 +2,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple
 from collections import defaultdict
-from plex_recommender.db import get_user_media_items, get_watch_events, get_stats, get_watch_source_breakdown, get_top_watched
+from plex_recommender.db.watch import get_user_media_items, get_watch_events, get_stats, get_watch_source_breakdown, get_top_watched
 
 def parse_date(date_val) -> datetime:
     """Safely parse date string or datetime, always returning a naive datetime."""

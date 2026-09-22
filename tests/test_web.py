@@ -1,7 +1,9 @@
 import pytest
 from starlette.testclient import TestClient
 from plex_recommender.config import settings
-from plex_recommender.db import init_db, create_or_update_user, upsert_user_media, record_watch_event, mark_onboarded
+from plex_recommender.db import init_db
+from plex_recommender.db.users import create_or_update_user, mark_onboarded
+from plex_recommender.db.watch import upsert_user_media, record_watch_event
 from plex_recommender.web.app import app
 
 USER = "u1"
@@ -191,6 +193,46 @@ def test_settings_no_warning_when_tautulli_matches(monkeypatch):
         assert "not monitoring the linked Plex server" not in resp.text
 
 
+def test_health_banner_shown_to_admin_when_integration_unhealthy():
+    from plex_recommender.health import record_health
+    record_health("tmdb", False, "TMDb authentication failed: invalid API key.")
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "Tmdb connection issue" in resp.text
+        assert "invalid API key" in resp.text
+        assert "Fix in Settings" in resp.text
+
+
+def test_health_banner_hidden_when_all_healthy():
+    from plex_recommender.health import record_health
+    record_health("tmdb", True, "Connected to TMDb")
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "connection issue" not in resp.text
+
+
+def test_health_banner_hidden_for_non_admin_even_when_unhealthy():
+    from plex_recommender.health import record_health
+    record_health("tmdb", False, "TMDb authentication failed: invalid API key.")
+    with TestClient(app) as client:
+        create_or_update_user({
+            "user_key": "u_regular", "username": "bob", "email": "bob@x.com",
+            "title": "Bob", "is_admin": False,
+        })
+        import itsdangerous, json, base64
+        signer = itsdangerous.TimestampSigner(settings.session_secret)
+        cookie = signer.sign(base64.b64encode(json.dumps({"user_key": "u_regular"}).encode())).decode()
+        client.cookies.set("session", cookie)
+
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "connection issue" not in resp.text
+
+
 def test_jobs_page_requires_login():
     with TestClient(app) as client:
         resp = client.get("/settings/jobs", follow_redirects=False)
@@ -199,7 +241,7 @@ def test_jobs_page_requires_login():
 
 
 def test_jobs_page_renders_history():
-    from plex_recommender.db import start_job, finish_job
+    from plex_recommender.db.jobs import start_job, finish_job
     with TestClient(app) as client:
         _login(client)
         jid = start_job("manual_sync", "manual", user_key=USER)
@@ -226,7 +268,7 @@ def test_homepage_shows_taste_profile_card():
 
 
 def test_taste_profile_does_not_show_data_sources_accordion():
-    from plex_recommender.db import upsert_user_media, record_watch_event
+    from plex_recommender.db.watch import upsert_user_media, record_watch_event
     with TestClient(app) as client:
         _login(client)
         upsert_user_media(USER, {
@@ -349,7 +391,7 @@ def test_system_page_requires_admin():
 
 
 def test_system_page_shows_db_and_user_data():
-    from plex_recommender.db import upsert_user_media
+    from plex_recommender.db.watch import upsert_user_media
     with TestClient(app) as client:
         _login(client)
         upsert_user_media(USER, {
@@ -366,7 +408,8 @@ def test_system_page_shows_db_and_user_data():
 
 
 def test_clear_user_data_removes_watch_data():
-    from plex_recommender.db import upsert_user_media, has_user_history, get_user
+    from plex_recommender.db.users import get_user
+    from plex_recommender.db.watch import upsert_user_media, has_user_history
     with TestClient(app) as client:
         _login(client)
         upsert_user_media(USER, {
@@ -788,7 +831,7 @@ def test_api_jobs_run_and_status():
 
 
 def test_api_jobs_run_requires_admin():
-    from plex_recommender.db import create_or_update_user
+    from plex_recommender.db.users import create_or_update_user
     create_or_update_user({
         "user_key": "reg_u", "username": "bob", "email": "b@x.com",
         "title": "Bob", "is_admin": False,
@@ -932,7 +975,7 @@ def test_recommendation_card_renders_anonymous_queue_status():
 
 
 def test_api_recommendations_dismiss_and_undismiss():
-    from plex_recommender.db import get_user_dismissals
+    from plex_recommender.db.engagement import get_user_dismissals
     with TestClient(app) as client:
         _login(client)
 
@@ -968,7 +1011,7 @@ def test_api_recommendations_dismiss_and_undismiss():
 
 
 def test_settings_logs_page_and_actions():
-    from plex_recommender.db import insert_system_log, get_system_logs
+    from plex_recommender.db.logs import insert_system_log, get_system_logs
     import time
 
     now = time.time()
@@ -1002,7 +1045,8 @@ def test_settings_logs_page_and_actions():
 
 
 def test_api_recommendations_vote_and_unvote():
-    from plex_recommender.db import get_user_votes, get_user_dismissals, get_system_logs
+    from plex_recommender.db.engagement import get_user_votes, get_user_dismissals
+    from plex_recommender.db.logs import get_system_logs
     with TestClient(app) as client:
         _login(client)
 
@@ -1059,7 +1103,8 @@ def test_api_recommendations_vote_and_unvote():
 
 
 def test_api_pool_stats():
-    from plex_recommender.db import clear_user_data, record_vote, dismiss_item
+    from plex_recommender.db.engagement import record_vote, dismiss_item
+    from plex_recommender.db.users import clear_user_data
 
     with TestClient(app) as client:
         _login(client)

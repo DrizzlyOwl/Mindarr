@@ -42,6 +42,13 @@ def is_env_managed(key: str) -> bool:
     """Return True if a setting was supplied via the OS environment (e.g. Docker)."""
     return key in ENV_MANAGED_KEYS
 
+
+def _parse_bool(value: Optional[str], default: bool = False) -> bool:
+    """Parse a truthy env string ('1', 'true', 'yes', 'on') into a bool."""
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
 class Settings:
     def __init__(self):
         self.config_dir: Path = get_config_dir()
@@ -55,10 +62,12 @@ class Settings:
         self.tautulli_api_key: Optional[str] = os.getenv("TAUTULLI_API_KEY") or None
         self.plex_machine_id: Optional[str] = os.getenv("PLEX_MACHINE_ID") or None
         self.session_secret: str = self._ensure_session_secret()
+        self.session_https_only: bool = _parse_bool(os.getenv("SESSION_HTTPS_ONLY"), default=False)
         self.host: str = os.getenv("HOST") or "0.0.0.0"
         self.port: int = int(os.getenv("PORT") or "8080")
         self.auto_sync_hours: int = int(os.getenv("AUTO_SYNC_HOURS") or "24")
         self.auto_recommendations_hours: int = int(os.getenv("AUTO_RECOMMENDATIONS_HOURS") or "24")
+        self.healthcheck_interval_hours: int = int(os.getenv("HEALTHCHECK_INTERVAL_HOURS") or "1")
 
     def _ensure_session_secret(self) -> str:
         """Return a persistent session secret, generating one on first run."""
@@ -83,8 +92,10 @@ class Settings:
         self.tautulli_url = (os.getenv("TAUTULLI_URL") or "").rstrip("/")
         self.tautulli_api_key = os.getenv("TAUTULLI_API_KEY") or None
         self.plex_machine_id = os.getenv("PLEX_MACHINE_ID") or None
+        self.session_https_only = _parse_bool(os.getenv("SESSION_HTTPS_ONLY"), default=False)
         self.auto_sync_hours = int(os.getenv("AUTO_SYNC_HOURS") or "24")
         self.auto_recommendations_hours = int(os.getenv("AUTO_RECOMMENDATIONS_HOURS") or "24")
+        self.healthcheck_interval_hours = int(os.getenv("HEALTHCHECK_INTERVAL_HOURS") or "1")
         self.db_path = Path(os.getenv("DB_PATH") or str(self.config_dir / "data.db"))
 
     def is_locked(self, key: str) -> bool:

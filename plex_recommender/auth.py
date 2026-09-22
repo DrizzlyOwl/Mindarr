@@ -1,15 +1,12 @@
 import time
 import logging
 import requests
-import urllib3
 import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, Tuple, List
 from plexapi.server import PlexServer
 from plex_recommender import __version__
 from plex_recommender.config import settings
-
-# Suppress insecure HTTPS warning for internal LAN plex IP connections
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from plex_recommender.http_client import make_session
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +76,8 @@ def verify_plex_connection(baseurl: Optional[str] = None, token: Optional[str] =
     if not tok:
         return False, "No Plex token provided."
 
-    # Use a custom requests session with SSL verify=False for local IP access
-    session = requests.Session()
-    session.verify = False
+    # Use a session with SSL verification scoped to LAN hosts (local Plex).
+    session = make_session(url)
 
     try:
         plex = PlexServer(url, tok, session=session, timeout=10)
@@ -131,8 +127,7 @@ def get_server_machine_id(baseurl: Optional[str] = None, token: Optional[str] = 
     tok = token or settings.plex_token
     if not tok:
         return None
-    session = requests.Session()
-    session.verify = False
+    session = make_session(url)
     try:
         plex = PlexServer(url, tok, session=session, timeout=10)
         return plex.machineIdentifier
