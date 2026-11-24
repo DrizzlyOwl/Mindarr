@@ -1305,7 +1305,15 @@ def test_auth_poll_admin_bootstrap_and_shared_user_flow(tmp_path, monkeypatch):
     monkeypatch.setattr(webapp.settings, "plex_machine_id", "MID-1")
 
     with TestClient(app) as client:
+        webapp._AUTH_RATE_BUCKETS.clear()
+
+        def _start_pin(pid: int):
+            monkeypatch.setattr(webapp, "create_plex_pin", lambda: {"id": pid, "code": "ABCD", "auth_url": "https://app.plex.tv/auth", "expires_in": 900})
+            r = client.post("/api/auth/start")
+            assert r.status_code == 200
+
         # 1. Unclaimed PIN
+        _start_pin(10)
         monkeypatch.setattr(webapp, "check_plex_pin", lambda pin_id: None)
         r_unclaimed = client.post("/api/auth/poll", data={"pin_id": "10"})
         assert r_unclaimed.status_code == 200
@@ -1329,6 +1337,7 @@ def test_auth_poll_admin_bootstrap_and_shared_user_flow(tmp_path, monkeypatch):
         assert get_admin()["user_key"] == "admin_1"
 
         # 3. Unauthorized shared user is denied
+        _start_pin(11)
         monkeypatch.setattr(webapp, "check_plex_pin", lambda pin_id: "guest-tok")
         monkeypatch.setattr(webapp, "get_plex_account", lambda tok: {
             "user_key": "guest_9", "plex_uuid": "u-g", "username": "stranger",
@@ -1341,6 +1350,7 @@ def test_auth_poll_admin_bootstrap_and_shared_user_flow(tmp_path, monkeypatch):
         assert get_user("guest_9") is None
 
         # 4. Authorized shared user succeeds as non-admin
+        _start_pin(12)
         monkeypatch.setattr(webapp, "check_user_access", lambda **kw: True)
         monkeypatch.setattr(webapp, "get_plex_account", lambda tok: {
             "user_key": "shared_2", "plex_uuid": "u-s", "username": "friend",

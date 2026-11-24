@@ -341,7 +341,8 @@
             for (const cat of favoredCategories) {
                 if (validSet.size === 0 || validSet.has(cat)) {
                     const isSel = (currentSelected === cat || currentSelected.toLowerCase() === cat.toLowerCase());
-                    html += `<option value="${cat}" ${isSel ? 'selected' : ''}>${cat}</option>`;
+                    const safeCat = escapeHtml(cat);
+                    html += `<option value="${safeCat}" ${isSel ? 'selected' : ''}>${safeCat}</option>`;
                 }
             }
             form.genre.innerHTML = html;
@@ -403,7 +404,7 @@
             activeFilterPillsEl.classList.remove('hidden');
             activeFilterPillsEl.innerHTML = active.map((d, i) => `
                 <button type="button" data-pill-index="${i}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-medium transition">
-                    <span>${d.label}</span>
+                    <span>${escapeHtml(d.label)}</span>
                     <svg class="w-3 h-3 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                 </button>
             `).join('');
@@ -663,7 +664,7 @@
                 resultsEl.innerHTML = `
                 <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
                     <div class="text-amber-400 font-bold text-lg">Could not load recommendations</div>
-                    <p class="text-sm text-slate-300">${e}</p>
+                    <p class="text-sm text-slate-300">${escapeHtml(e)}</p>
                 </div>`;
             }
         }
@@ -1211,27 +1212,31 @@
 
             let html = '';
             for (const item of items) {
+                const safeId = escapeHtml(item.tmdb_id);
+                const safeTitle = escapeHtml(item.title || ('TMDb ' + item.tmdb_id));
+                const safeYear = item.year ? `<span class="text-xs text-slate-400">(${escapeHtml(item.year)})</span>` : '';
+                const safeType = escapeHtml(item.media_type || 'item');
                 let badge = '';
                 let actionBtn = '';
 
                 if (item.type === 'upvote' || item.vote === 1) {
                     badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">Thumbs Up 👍</span>';
-                    actionBtn = `<button type="button" onclick="unvoteRecommendation('${item.tmdb_id}')" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Remove Vote</button>`;
+                    actionBtn = `<button type="button" data-tuned-action="unvote" data-tmdb-id="${safeId}" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Remove Vote</button>`;
                 } else if (item.reason === 'already_watched') {
                     badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Marked as Seen</span>';
-                    actionBtn = `<button type="button" onclick="undismissRecommendation('${item.tmdb_id}', this)" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Unhide</button>`;
+                    actionBtn = `<button type="button" data-tuned-action="undismiss" data-tmdb-id="${safeId}" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Unhide</button>`;
                 } else {
                     badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">Thumbs Down 👎</span>';
-                    actionBtn = `<button type="button" onclick="unvoteRecommendation('${item.tmdb_id}')" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Restore</button>`;
+                    actionBtn = `<button type="button" data-tuned-action="unvote" data-tmdb-id="${safeId}" class="shrink-0 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">Restore</button>`;
                 }
 
                 html += `
-                <div class="py-3 flex items-center justify-between gap-3" id="tuned-row-${item.tmdb_id}">
+                <div class="py-3 flex items-center justify-between gap-3" id="tuned-row-${safeId}">
                     <div class="space-y-0.5 min-w-0 flex-1">
                         <div class="flex items-center space-x-2">
-                            <span class="text-sm font-semibold text-white truncate">${item.title || ('TMDb ' + item.tmdb_id)}</span>
-                            ${item.year ? `<span class="text-xs text-slate-400">(${item.year})</span>` : ''}
-                            <span class="uppercase text-[9px] px-1 rounded bg-slate-800 text-slate-400">${item.media_type || 'item'}</span>
+                            <span class="text-sm font-semibold text-white truncate">${safeTitle}</span>
+                            ${safeYear}
+                            <span class="uppercase text-[9px] px-1 rounded bg-slate-800 text-slate-400">${safeType}</span>
                         </div>
                         <div>${badge}</div>
                     </div>
@@ -1240,8 +1245,18 @@
                 `;
             }
             body.innerHTML = html;
+            body.querySelectorAll('[data-tuned-action]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const tid = btn.dataset.tmdbId;
+                    if (btn.dataset.tunedAction === 'undismiss') {
+                        undismissRecommendation(tid, btn);
+                    } else {
+                        unvoteRecommendation(tid);
+                    }
+                });
+            });
         } catch (e) {
-            body.innerHTML = `<div class="text-xs text-rose-400 text-center py-6">Failed to load tuned preferences: ${e}</div>`;
+            body.innerHTML = `<div class="text-xs text-rose-400 text-center py-6">Failed to load tuned preferences: ${escapeHtml(e)}</div>`;
         }
     }
 

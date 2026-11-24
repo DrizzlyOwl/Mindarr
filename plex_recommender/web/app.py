@@ -1,5 +1,9 @@
 import logging
+import os
+import re
 import threading
+import time
+from collections import deque
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -13,7 +17,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from plex_recommender import __version__
-from plex_recommender.config import settings
+from plex_recommender.config import settings, _parse_bool
 from plex_recommender.logs import log_handler, LogHandler
 from plex_recommender.db import init_db
 from plex_recommender.db.watch import (
@@ -224,7 +228,15 @@ async def lifespan(app: FastAPI):
     if scheduler.running:
         scheduler.shutdown()
 
-app = FastAPI(title="Mindarr", version=__version__, lifespan=lifespan)
+_enable_api_docs = _parse_bool(os.getenv("ENABLE_API_DOCS"), default=False)
+app = FastAPI(
+    title="Mindarr",
+    version=__version__,
+    lifespan=lifespan,
+    docs_url="/docs" if _enable_api_docs else None,
+    redoc_url="/redoc" if _enable_api_docs else None,
+    openapi_url="/openapi.json" if _enable_api_docs else None,
+)
 
 
 _UNSET_USER = object()
@@ -279,6 +291,31 @@ _ONBOARDING_GATE_ALLOWLIST = (
 
 # API routes that are legitimately accessible before authentication (OAuth PIN flow).
 _PUBLIC_API_ROUTES = frozenset({"/api/auth/start", "/api/auth/poll"})
+
+
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Attach baseline OWASP A05 HTTP security headers to every response."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Content-Security-Policy", _CSP_POLICY)
+    return response
 
 
 @app.middleware("http")
@@ -634,7 +671,7 @@ def api_recommendations(
             )
         except Exception as e:
             logger.error(f"Recommendation generation error: {e}")
-            error_msg = str(e)
+            error_msg = "Failed to generate recommendations. Please check your configuration and try again."
 
     low_bw = is_low_bandwidth(request)
     for item in results.get("recommendations", []):
@@ -681,6 +718,29 @@ def api_clear_recommendations_cache(request: Request):
     return {"success": True, "message": "Recommendations cache cleared"}
 
 
+_TMDB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+_ALLOWED_MEDIA_TYPES = frozenset({"movie", "show", "tv", "episode"})
+_ALLOWED_DISMISS_REASONS = frozenset({"not_interested", "already_watched"})
+
+
+def _validate_tmdb_id(tmdb_id: str) -> str:
+    cleaned = tmdb_id.strip()
+    if not _TMDB_ID_RE.match(cleaned):
+        raise HTTPException(status_code=400, detail="Invalid tmdb_id format.")
+    return cleaned
+
+
+def _validate_media_type(media_type: str) -> str:
+    cleaned = media_type.strip().lower()
+    if cleaned not in _ALLOWED_MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid media_type.")
+    return cleaned
+
+
+def _sanitize_title(title: str) -> str:
+    return title.replace("\r", " ").replace("\n", " ").replace("\x00", "").strip()[:200]
+
+
 @app.post("/api/recommendations/vote")
 def api_vote_recommendation(
     request: Request,
@@ -693,6 +753,10 @@ def api_vote_recommendation(
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    tmdb_id = _validate_tmdb_id(tmdb_id)
+    media_type = _validate_media_type(media_type)
+    title = _sanitize_title(title)
 
     v = 1 if int(vote) > 0 else -1
     record_vote(
@@ -730,6 +794,7 @@ def api_unvote_recommendation(
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    tmdb_id = _validate_tmdb_id(tmdb_id)
     remove_vote(user_key=user["user_key"], tmdb_id=tmdb_id)
     logger.info(
         "User '%s' removed vote on recommendation TMDb: %s.",
@@ -751,6 +816,12 @@ def api_dismiss_recommendation(
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    tmdb_id = _validate_tmdb_id(tmdb_id)
+    media_type = _validate_media_type(media_type)
+    title = _sanitize_title(title)
+    if reason not in _ALLOWED_DISMISS_REASONS:
+        raise HTTPException(status_code=400, detail="Invalid dismissal reason.")
 
     if reason == "not_interested":
         record_vote(
@@ -792,6 +863,7 @@ def api_undismiss_recommendation(
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    tmdb_id = _validate_tmdb_id(tmdb_id)
     undismiss_item(user_key=user["user_key"], tmdb_id=tmdb_id)
     logger.info(
         "User '%s' restored recommendation TMDb: %s to active pools.",
@@ -1263,23 +1335,64 @@ def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
+_AUTH_RATE_LOCK = threading.Lock()
+_AUTH_RATE_BUCKETS: dict = {}
+
+
+def _check_auth_rate_limit(request: Request, bucket: str, max_requests: int, window_sec: int = 60) -> bool:
+    """Sliding-window per-IP rate limiter for auth endpoints. Returns True if allowed."""
+    forwarded = request.headers.get("x-forwarded-for")
+    client_ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "unknown")
+    )
+    key = f"{bucket}:{client_ip}"
+    now = time.monotonic()
+    with _AUTH_RATE_LOCK:
+        dq = _AUTH_RATE_BUCKETS.get(key)
+        if dq is None:
+            dq = deque()
+            _AUTH_RATE_BUCKETS[key] = dq
+        while dq and now - dq[0] >= window_sec:
+            dq.popleft()
+        if len(dq) >= max_requests:
+            return False
+        dq.append(now)
+    return True
+
+
 @app.post("/api/auth/start")
-def start_auth():
+def start_auth(request: Request):
+    if not _check_auth_rate_limit(request, "auth_start", max_requests=15):
+        return JSONResponse({"error": "rate_limited", "message": "Too many sign-in attempts. Please wait a minute."}, status_code=429)
     try:
         pin_data = create_plex_pin()
+        request.session["pending_pin_id"] = int(pin_data["id"])
         return JSONResponse(pin_data)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error("Failed to initiate Plex OAuth PIN: %s", e)
+        return JSONResponse({"error": "Failed to contact Plex authentication service."}, status_code=500)
+
 
 @app.post("/api/auth/poll")
 def poll_auth(request: Request, pin_id: int = Form(...)):
     """Poll the OAuth PIN; on claim, establish identity, access, and session."""
+    if not _check_auth_rate_limit(request, "auth_poll", max_requests=60):
+        return JSONResponse({"error": "rate_limited", "message": "Too many auth poll requests."}, status_code=429)
+
+    pending_pin_id = request.session.get("pending_pin_id")
+    if pending_pin_id is None or int(pending_pin_id) != int(pin_id):
+        logger.warning("Rejected /api/auth/poll with unbound or mismatched pin_id=%s", pin_id)
+        return JSONResponse({"error": "invalid_pin_session", "message": "Authentication session expired. Please try again."}, status_code=403)
+
     token = check_plex_pin(pin_id)
     if not token:
         return JSONResponse({"claimed": False})
 
     account = get_plex_account(token)
     if not account:
+        request.session.pop("pending_pin_id", None)
         return JSONResponse({"claimed": True, "authorized": False,
                              "message": "Could not verify your Plex account."})
 
@@ -1295,6 +1408,7 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
             "plex_token": token,
             "is_admin": True,
         })
+        request.session.clear()
         request.session["user_key"] = account["user_key"]
         previous_seen = touch_last_seen(account["user_key"])
         if previous_seen:
@@ -1316,6 +1430,7 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
         owner_id=admin.get("user_key"),
     )
     if not allowed:
+        request.session.pop("pending_pin_id", None)
         logger.warning(
             "Sign-in denied for user '%s' (%s): not authorized on linked server '%s'.",
             account.get("username") or account.get("title"),
@@ -1325,7 +1440,9 @@ def poll_auth(request: Request, pin_id: int = Form(...)):
         return JSONResponse({"claimed": True, "authorized": False,
                              "message": "You do not have access to this Plex server."})
 
-    create_or_update_user({**account, "plex_token": token, "is_admin": False})
+    # Shared user OAuth tokens are only needed at login; never persist them at rest.
+    create_or_update_user({**account, "plex_token": None, "is_admin": False})
+    request.session.clear()
     request.session["user_key"] = account["user_key"]
     previous_seen = touch_last_seen(account["user_key"])
     if previous_seen:

@@ -482,9 +482,9 @@
         // Meta line
         const metaLine = document.getElementById('drawer-meta-line');
         const metaParts = [];
-        if (item.year) metaParts.push(`<span>${item.year}</span>`);
-        if (item.media_type) metaParts.push(`<span class="capitalize">${item.media_type}</span>`);
-        if (item.duration_formatted) metaParts.push(`<span>${item.duration_formatted}</span>`);
+        if (item.year) metaParts.push(`<span>${escapeHtml(item.year)}</span>`);
+        if (item.media_type) metaParts.push(`<span class="capitalize">${escapeHtml(item.media_type)}</span>`);
+        if (item.duration_formatted) metaParts.push(`<span>${escapeHtml(item.duration_formatted)}</span>`);
         metaLine.innerHTML = metaParts.join(' &bull; ');
 
         // Genres
@@ -492,7 +492,7 @@
         const genresList = document.getElementById('drawer-genres-list');
         if (item.genres && item.genres.length > 0) {
             genresBox.classList.remove('hidden');
-            genresList.innerHTML = item.genres.map(g => `<span class="px-2 py-0.5 rounded-lg text-xs bg-slate-800 text-slate-300 border border-slate-700">${g}</span>`).join('');
+            genresList.innerHTML = item.genres.map(g => `<span class="px-2 py-0.5 rounded-lg text-xs bg-slate-800 text-slate-300 border border-slate-700">${escapeHtml(g)}</span>`).join('');
         } else {
             genresBox.classList.add('hidden');
         }
@@ -533,10 +533,10 @@
         const links = [];
         if (item.tmdb_id) {
             const tmdbType = item.media_type === 'show' || item.media_type === 'episode' ? 'tv' : 'movie';
-            links.push(`<a href="https://www.themoviedb.org/${tmdbType}/${item.tmdb_id}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold border border-slate-700 transition"><span>TMDb Page &nearr;</span></a>`);
+            links.push(`<a href="https://www.themoviedb.org/${tmdbType}/${encodeURIComponent(item.tmdb_id)}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-semibold border border-slate-700 transition"><span>TMDb Page &nearr;</span></a>`);
         }
         if (item.imdb_id) {
-            links.push(`<a href="https://www.imdb.com/title/${item.imdb_id}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold border border-slate-700 transition"><span>IMDb Page &nearr;</span></a>`);
+            links.push(`<a href="https://www.imdb.com/title/${encodeURIComponent(item.imdb_id)}" target="_blank" rel="noopener" class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold border border-slate-700 transition"><span>IMDb Page &nearr;</span></a>`);
         }
         if (links.length > 0) {
             linksBox.classList.remove('hidden');

@@ -159,6 +159,10 @@ class Settings:
 
             with open(ENV_FILE, "w") as f:
                 f.writelines(new_lines)
+            try:
+                os.chmod(ENV_FILE, 0o600)
+            except OSError:
+                pass
 
             self.reload()
 

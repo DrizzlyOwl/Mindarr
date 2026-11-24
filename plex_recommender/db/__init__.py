@@ -5,6 +5,7 @@ recommendations, engagement, jobs, logs); import from those directly, e.g.
 `from plex_recommender.db.watch import get_user_media_items`.
 """
 
+import os
 import sqlite3
 from plex_recommender.config import settings
 from plex_recommender.db import migrations
@@ -190,3 +191,7 @@ def init_db():
     migrations.run_all(conn)
 
     conn.close()
+    try:
+        os.chmod(settings.db_path, 0o600)
+    except OSError:
+        pass

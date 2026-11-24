@@ -258,6 +258,16 @@ def _migrate_normalize_media_item_ids(conn: sqlite3.Connection):
         )
 
 
+def _migrate_scrub_non_admin_tokens(conn: sqlite3.Connection):
+    """OWASP A02: Ensure shared (non-admin) users never retain plaintext Plex tokens at rest."""
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET plex_token = NULL WHERE is_admin = 0 AND plex_token IS NOT NULL")
+    scrubbed = cur.rowcount
+    conn.commit()
+    if scrubbed:
+        logger.info("Scrubbed %s legacy non-admin Plex token(s) from users table.", scrubbed)
+
+
 def run_all(conn: sqlite3.Connection):
     """Run all migrations/reconciliations, in order, against an open connection."""
     _migrate_add_columns(conn)
@@ -265,3 +275,4 @@ def run_all(conn: sqlite3.Connection):
     _reconcile_watch_events_migration(conn)
     _migrate_hidden_cards_to_votes(conn)
     _migrate_normalize_media_item_ids(conn)
+    _migrate_scrub_non_admin_tokens(conn)

@@ -7,6 +7,7 @@ from plex_recommender.db.migrations import (
     _migrate_add_columns,
     _migrate_discard_global,
     _reconcile_watch_events_migration,
+    _migrate_scrub_non_admin_tokens,
 )
 
 
@@ -98,3 +99,23 @@ def test_reconcile_watch_events_migration_merges_within_window_and_keeps_distinc
     assert rows[0]["duration_watched"] == 2700
     assert rows[0]["title"] == "Great Show - Pilot"
     assert rows[1]["event_key"] == "t2"
+
+
+def test_migrate_scrub_non_admin_tokens_preserves_admin_only(tmp_path, monkeypatch):
+    db_path = tmp_path / "mig_tokens.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+    init_db()
+
+    conn = get_connection()
+    conn.execute("INSERT INTO users (user_key, username, plex_token, is_admin) VALUES ('adm', 'admin', 'adm-tok', 1)")
+    conn.execute("INSERT INTO users (user_key, username, plex_token, is_admin) VALUES ('usr', 'bob', 'usr-tok', 0)")
+    conn.commit()
+
+    _migrate_scrub_non_admin_tokens(conn)
+
+    adm_tok = conn.execute("SELECT plex_token FROM users WHERE user_key = 'adm'").fetchone()["plex_token"]
+    usr_tok = conn.execute("SELECT plex_token FROM users WHERE user_key = 'usr'").fetchone()["plex_token"]
+    conn.close()
+
+    assert adm_tok == "adm-tok"
+    assert usr_tok is None

@@ -357,7 +357,10 @@
                 if (pollData.claimed) {
                     clearInterval(poller);
                     if (pollData.authorized === false) {
-                        modal.innerHTML = '<div class="text-rose-400 text-sm font-bold">' + (pollData.message || 'Authorization failed.') + '</div>';
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = 'text-rose-400 text-sm font-bold';
+                        msgDiv.textContent = pollData.message || 'Authorization failed.';
+                        modal.replaceChildren(msgDiv);
                         return;
                     }
                     modal.innerHTML = '<div class="text-emerald-400 text-sm font-bold">Successfully authenticated! Reloading...</div>';
