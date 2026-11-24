@@ -162,6 +162,22 @@ def init_db():
     """)
 
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS user_watchlist (
+        user_key TEXT,
+        tmdb_id TEXT,
+        media_type TEXT,
+        title TEXT,
+        year INTEGER,
+        poster_url TEXT,
+        rating REAL,
+        genres TEXT,
+        summary TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_key, tmdb_id)
+    )
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS system_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -183,6 +199,7 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_job_started ON job_history(started_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_dismissals ON user_dismissals(user_key)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_votes ON user_votes(user_key, vote)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlist ON user_watchlist(user_key, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_epoch ON system_logs(epoch DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_level ON system_logs(level)")
 

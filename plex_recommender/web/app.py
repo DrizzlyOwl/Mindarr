@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -22,7 +23,9 @@ from plex_recommender.logs import log_handler, LogHandler
 from plex_recommender.db import init_db
 from plex_recommender.db.watch import (
     get_stats, has_user_history, get_enriched_watch_events, get_watch_source_breakdown,
+    get_user_seen_index,
 )
+from plex_recommender.db.media import get_library_availability_index
 from plex_recommender.db.recommendations import (
     set_setting, get_setting, clear_recommendations_cache, clear_user_recommendations_cache,
 )
@@ -36,6 +39,8 @@ from plex_recommender.db.engagement import (
     dismiss_item, undismiss_item, get_user_dismissals,
     record_vote, remove_vote, get_user_votes, get_user_vote_items,
     get_user_action_counts,
+    add_to_watchlist, remove_from_watchlist, is_in_watchlist,
+    get_user_watchlist, get_user_watchlist_ids, get_user_watchlist_count,
 )
 from plex_recommender.db.logs import get_system_logs, truncate_system_logs, clear_all_system_logs
 from plex_recommender.auth import (
@@ -299,6 +304,7 @@ _CSP_POLICY = (
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: https:; "
     "connect-src 'self'; "
+    "frame-src https://www.youtube-nocookie.com https://www.youtube.com; "
     "object-src 'none'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
@@ -580,7 +586,8 @@ def recommendations_page(
     limit: int = 18,
     available: bool = False,
     include_kids: bool = False,
-    force_refresh: bool = False
+    force_refresh: bool = False,
+    view: str = "discover",
 ):
     user = get_current_user(request)
     if not user:
@@ -642,6 +649,8 @@ def recommendations_page(
             "low_bandwidth": is_low_bandwidth(request),
             "force_refresh": force_refresh,
             "user_votes": get_user_votes(user["user_key"]),
+            "watchlist_count": get_user_watchlist_count(user["user_key"]),
+            "selected_view": "watchlist" if view == "watchlist" else "discover",
             "first_name": first_name_of(user),
             "show_first_visit_tour": needs_first_visit_tour(user),
         }
@@ -708,6 +717,7 @@ def api_recommendations(
             item["poster_url"] = cached
 
     user_counts = get_user_action_counts(user["user_key"])
+    watchlist_ids = get_user_watchlist_ids(user["user_key"])
     html = templates.get_template("_recommendation_cards.html").render(
         {
             "request": request,
@@ -716,6 +726,8 @@ def api_recommendations(
             "has_overseerr": overseerr.is_configured(),
             "low_bandwidth": low_bw,
             "user_votes": get_user_votes(user["user_key"]),
+            "watchlist_ids": watchlist_ids,
+            "is_watchlist_view": False,
             "pool_stats": user_counts,
         }
     )
@@ -729,6 +741,7 @@ def api_recommendations(
         "page": results.get("page", 1),
         "total_pages": results.get("total_pages", 1),
         "unseen_count": results.get("unseen_count", 0),
+        "watchlist_count": len(watchlist_ids),
         "exhaustion_reason": results.get("exhaustion_reason"),
         "error": error_msg,
     })
@@ -809,7 +822,12 @@ def api_vote_recommendation(
             media_type,
             tmdb_id
         )
-    return JSONResponse({"success": True, "tmdb_id": tmdb_id, "vote": v})
+    return JSONResponse({
+        "success": True,
+        "tmdb_id": tmdb_id,
+        "vote": v,
+        "watchlist_count": get_user_watchlist_count(user["user_key"]),
+    })
 
 
 @app.post("/api/recommendations/unvote")
@@ -878,7 +896,12 @@ def api_dismiss_recommendation(
         tmdb_id,
         reason_label
     )
-    return JSONResponse({"success": True, "tmdb_id": tmdb_id, "reason": reason})
+    return JSONResponse({
+        "success": True,
+        "tmdb_id": tmdb_id,
+        "reason": reason,
+        "watchlist_count": get_user_watchlist_count(user["user_key"]),
+    })
 
 
 @app.post("/api/recommendations/undismiss")
@@ -916,6 +939,255 @@ def api_recommendations_pool_stats(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     counts = get_user_action_counts(user["user_key"])
     return JSONResponse({"success": True, **counts})
+
+
+def _sanitize_poster_url(poster_url: Optional[str]) -> Optional[str]:
+    if not poster_url:
+        return None
+    cleaned = poster_url.strip()
+    if cleaned.startswith("/static/posters/") or cleaned.startswith("https://image.tmdb.org/"):
+        return cleaned[:300]
+    return None
+
+
+@app.get("/api/media/details", response_class=JSONResponse)
+def api_media_details(
+    request: Request,
+    tmdb_id: str,
+    media_type: str = "movie",
+):
+    """Fetch rich TMDb details (trailer, cast, runtime, TV seasons) + Plex/Overseerr/Watchlist state."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    cleaned_id = _validate_tmdb_id(tmdb_id)
+    if not cleaned_id.isdigit():
+        raise HTTPException(status_code=400, detail="tmdb_id must be numeric.")
+    cleaned_type = _validate_media_type(media_type)
+    norm_type = "show" if cleaned_type in ("show", "tv", "episode") else "movie"
+
+    if not tmdb.is_configured():
+        return JSONResponse({"success": False, "error": "TMDb API Key is not configured."}, status_code=400)
+
+    details = tmdb.get_details(int(cleaned_id), media_type=norm_type)
+    if not details:
+        return JSONResponse({"success": False, "error": "Could not load details from TMDb."}, status_code=404)
+
+    # Copy so we don't mutate the cached TMDb dict across users/requests
+    payload = dict(details)
+    low_bw = is_low_bandwidth(request)
+    if low_bw:
+        payload["poster_url"] = None
+        payload["backdrop_url"] = None
+    else:
+        cached = get_cached_poster_url_from_source(
+            cleaned_id, norm_type, payload.get("poster_url"), low_bw
+        )
+        if cached:
+            payload["poster_url"] = cached
+
+    # Plex availability
+    availability_index = get_library_availability_index()
+    machine_id = settings.plex_machine_id
+    avail_info = None
+    if cleaned_id.lower() in availability_index["tmdb"]:
+        avail_info = availability_index["tmdb"][cleaned_id.lower()]
+    elif payload.get("imdb_id") and payload["imdb_id"].lower() in availability_index["imdb"]:
+        avail_info = availability_index["imdb"][payload["imdb_id"].lower()]
+    elif payload.get("tvdb_id") and str(payload["tvdb_id"]).lower() in availability_index["tvdb"]:
+        avail_info = availability_index["tvdb"][str(payload["tvdb_id"]).lower()]
+
+    payload["available_on_plex"] = avail_info is not None
+    payload["plex_url"] = None
+    if avail_info and machine_id and avail_info.get("rating_key"):
+        payload["plex_url"] = (
+            f"https://app.plex.tv/desktop/#!/server/{machine_id}"
+            f"/details?key=/library/metadata/{avail_info['rating_key']}"
+        )
+
+    # Overseerr status & per-season status
+    payload["has_overseerr"] = overseerr.is_configured()
+    payload["overseerr_url"] = overseerr.get_web_url(int(cleaned_id), media_type=norm_type) if payload["has_overseerr"] else None
+    payload["overseerr_info"] = None
+    if payload["has_overseerr"]:
+        payload["overseerr_info"] = overseerr.get_media_info(int(cleaned_id), media_type=norm_type)
+
+    # User-specific engagement state
+    uk = user["user_key"]
+    payload["in_watchlist"] = is_in_watchlist(uk, cleaned_id)
+    payload["user_vote"] = get_user_votes(uk).get(cleaned_id)
+
+    return JSONResponse({"success": True, "details": payload})
+
+
+@app.post("/api/watchlist/toggle", response_class=JSONResponse)
+def api_watchlist_toggle(
+    request: Request,
+    tmdb_id: str = Form(...),
+    media_type: str = Form("movie"),
+    title: str = Form(""),
+    year: Optional[int] = Form(None),
+    poster_url: Optional[str] = Form(None),
+    rating: Optional[float] = Form(None),
+    genres: Optional[str] = Form(None),
+    summary: str = Form(""),
+):
+    """Add or remove a title from the current user's personal watchlist."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    cleaned_id = _validate_tmdb_id(tmdb_id)
+    cleaned_type = _validate_media_type(media_type)
+    norm_type = "show" if cleaned_type in ("show", "tv", "episode") else "movie"
+    uk = user["user_key"]
+
+    if is_in_watchlist(uk, cleaned_id):
+        remove_from_watchlist(uk, cleaned_id)
+        in_wl = False
+        logger.info("User '%s' removed TMDb %s from watchlist.", user.get("username") or uk, cleaned_id)
+    else:
+        clean_title = _sanitize_title(title)
+        clean_summary = summary.replace("\r", " ").replace("\n", " ").replace("\x00", "").strip()[:1000]
+        clean_poster = _sanitize_poster_url(poster_url)
+        parsed_genres: list = []
+        if genres:
+            try:
+                loaded = json.loads(genres)
+                if isinstance(loaded, list):
+                    parsed_genres = [str(g).strip()[:40] for g in loaded if str(g).strip()][:10]
+            except Exception:
+                parsed_genres = [g.strip()[:40] for g in genres.split(",") if g.strip()][:10]
+        add_to_watchlist(
+            user_key=uk,
+            tmdb_id=cleaned_id,
+            media_type=norm_type,
+            title=clean_title,
+            year=year,
+            poster_url=clean_poster,
+            rating=rating,
+            genres=parsed_genres,
+            summary=clean_summary,
+        )
+        in_wl = True
+        logger.info("User '%s' saved '%s' (TMDb %s) to watchlist.", user.get("username") or uk, clean_title or cleaned_id, cleaned_id)
+
+    return JSONResponse({
+        "success": True,
+        "tmdb_id": cleaned_id,
+        "in_watchlist": in_wl,
+        "watchlist_count": get_user_watchlist_count(uk),
+    })
+
+
+@app.get("/api/watchlist", response_class=JSONResponse)
+def api_get_watchlist(
+    request: Request,
+    type: str = "all",
+    available: bool = False,
+):
+    """Return the user's saved watchlist enriched with live Plex/Overseerr availability and rendered card HTML."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    uk = user["user_key"]
+    saved_items = get_user_watchlist(uk)
+    total_count = len(saved_items)
+
+    availability_index = get_library_availability_index()
+    machine_id = settings.plex_machine_id
+    seen_index = get_user_seen_index(uk)
+    overseerr_queue = {}
+    has_overseerr = overseerr.is_configured()
+    if has_overseerr:
+        try:
+            overseerr_queue = overseerr.get_request_queue()
+        except Exception as e:
+            logger.debug(f"Failed to load Overseerr queue for watchlist: {e}")
+
+    low_bw = is_low_bandwidth(request)
+    enriched = []
+    for raw in saved_items:
+        mtype = "show" if str(raw.get("media_type")).lower() in ("show", "tv", "episode") else "movie"
+        if type in ("movie", "show") and mtype != type:
+            continue
+
+        tid = str(raw["tmdb_id"])
+        avail_info = availability_index["tmdb"].get(tid.lower())
+        available_on_plex = avail_info is not None
+        if available and not available_on_plex:
+            continue
+
+        plex_url = None
+        if avail_info and machine_id and avail_info.get("rating_key"):
+            plex_url = (
+                f"https://app.plex.tv/desktop/#!/server/{machine_id}"
+                f"/details?key=/library/metadata/{avail_info['rating_key']}"
+            )
+
+        q_info = overseerr_queue.get(f"{mtype}_{tid}")
+        overseerr_requested = bool(q_info and q_info.get("status_code") in (2, 3, 4))
+        overseerr_status = q_info.get("status_name", "PENDING") if overseerr_requested else None
+        overseerr_status_code = q_info.get("status_code", 2) if overseerr_requested else None
+
+        poster_url = get_cached_poster_url_from_source(tid, mtype, raw.get("poster_url"), low_bw)
+
+        tmdb_url = tmdb.get_web_url(tid, media_type=mtype)
+        overseerr_url = overseerr.get_web_url(int(tid), media_type=mtype) if (has_overseerr and tid.isdigit()) else None
+
+        enriched.append({
+            "tmdb_id": tid,
+            "media_type": mtype,
+            "title": raw.get("title") or f"TMDb {tid}",
+            "year": raw.get("year"),
+            "rating": raw.get("rating") or 0,
+            "genres": raw.get("genres") or [],
+            "summary": raw.get("summary") or "",
+            "poster_url": poster_url,
+            "original_language": "en",
+            "available_on_plex": available_on_plex,
+            "plex_url": plex_url,
+            "overseerr_requested": overseerr_requested,
+            "overseerr_status": overseerr_status,
+            "overseerr_status_code": overseerr_status_code,
+            "overseerr_url": overseerr_url,
+            "tmdb_url": tmdb_url,
+            "imdb_url": None,
+            "is_in_watchlist": True,
+            "seen_by_user": tid.lower() in seen_index["tmdb"],
+            "match_score": None,
+            "rationale": "",
+            "decision_factors": None,
+        })
+
+    results = {
+        "success": True,
+        "recommendations": enriched,
+        "is_complete": True,
+    }
+    watchlist_ids = {item["tmdb_id"] for item in enriched}
+    html = templates.get_template("_recommendation_cards.html").render(
+        {
+            "request": request,
+            "results": results,
+            "error_msg": None,
+            "has_overseerr": has_overseerr,
+            "low_bandwidth": low_bw,
+            "user_votes": get_user_votes(uk),
+            "watchlist_ids": watchlist_ids,
+            "is_watchlist_view": True,
+            "pool_stats": get_user_action_counts(uk),
+        }
+    )
+
+    return JSONResponse({
+        "html": html,
+        "has_results": bool(enriched),
+        "watchlist_count": total_count,
+        "filtered_count": len(enriched),
+    })
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
@@ -1602,7 +1874,12 @@ def request_overseerr(
         "success" if success else "failed",
         message
     )
-    return JSONResponse({"success": success, "message": message, "overseerr_user_id": overseerr_user_id})
+    return JSONResponse({
+        "success": success,
+        "message": message,
+        "overseerr_user_id": overseerr_user_id,
+        "seasons": parsed_seasons,
+    })
 
 @app.get("/api/overseerr/test")
 def test_overseerr_route(request: Request):

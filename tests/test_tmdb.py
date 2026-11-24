@@ -243,3 +243,102 @@ def test_test_connection_unauthorized(mock_get):
     assert "invalid" in msg.lower()
 
 
+def test_get_details_movie_parses_trailer_credits_and_providers(monkeypatch):
+    client = TMDbClient(api_key="test_key")
+    calls = []
+
+    def fake_request(ep, params=None):
+        calls.append((ep, params))
+        return {
+            "id": 603,
+            "title": "The Matrix",
+            "tagline": "Welcome to the Real World.",
+            "overview": "A computer hacker learns...",
+            "release_date": "1999-03-31",
+            "vote_average": 8.2,
+            "vote_count": 25000,
+            "runtime": 136,
+            "status": "Released",
+            "genres": [{"id": 28, "name": "Action"}, {"id": 878, "name": "Science Fiction"}],
+            "poster_path": "/matrix.jpg",
+            "backdrop_path": "/matrix_bg.jpg",
+            "original_language": "en",
+            "external_ids": {"imdb_id": "tt0133093"},
+            "credits": {
+                "crew": [
+                    {"job": "Director", "name": "Lana Wachowski"},
+                    {"job": "Director", "name": "Lilly Wachowski"},
+                ],
+                "cast": [
+                    {"name": "Keanu Reeves", "character": "Neo", "profile_path": "/keanu.jpg"},
+                ],
+            },
+            "videos": {
+                "results": [
+                    {"site": "YouTube", "type": "Teaser", "official": True, "key": "teaser1", "name": "Teaser"},
+                    {"site": "YouTube", "type": "Trailer", "official": True, "key": "trailer_main", "name": "Official Trailer"},
+                ],
+            },
+            "watch/providers": {
+                "results": {
+                    "US": {
+                        "flatrate": [{"provider_name": "Max", "logo_path": "/max.png"}]
+                    }
+                }
+            },
+        }
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    details = client.get_details(603, media_type="movie")
+    assert details is not None
+    assert details["title"] == "The Matrix"
+    assert details["year"] == 1999
+    assert details["runtime"] == 136
+    assert details["genres"] == ["Action", "Sci-Fi"]
+    assert details["directors"] == ["Lana Wachowski", "Lilly Wachowski"]
+    assert details["cast"][0]["name"] == "Keanu Reeves"
+    assert details["trailer"]["key"] == "trailer_main"
+    assert details["watch_providers"][0]["name"] == "Max"
+    assert details["imdb_url"] == "https://www.imdb.com/title/tt0133093/"
+
+    # Second call served from in-memory TTL cache
+    cached = client.get_details(603, media_type="movie")
+    assert cached["title"] == "The Matrix"
+    assert len(calls) == 1
+
+
+def test_get_details_tv_filters_specials_and_parses_seasons(monkeypatch):
+    client = TMDbClient(api_key="test_key")
+    monkeypatch.setattr(client, "_request", lambda ep, params=None: {
+        "id": 1396,
+        "name": "Breaking Bad",
+        "overview": "Chemistry teacher...",
+        "first_air_date": "2008-01-20",
+        "vote_average": 8.9,
+        "vote_count": 14000,
+        "episode_run_time": [45],
+        "genres": [{"id": 18, "name": "Drama"}],
+        "created_by": [{"name": "Vince Gilligan"}],
+        "seasons": [
+            {"season_number": 0, "name": "Specials", "episode_count": 9},
+            {"season_number": 2, "name": "Season 2", "episode_count": 13},
+            {"season_number": 1, "name": "Season 1", "episode_count": 7},
+        ],
+        "number_of_seasons": 5,
+        "number_of_episodes": 62,
+    })
+
+    details = client.get_details(1396, media_type="show")
+    assert details is not None
+    assert details["media_type"] == "show"
+    assert details["directors"] == ["Vince Gilligan"]
+    assert [s["season_number"] for s in details["seasons"]] == [1, 2]
+    assert details["number_of_seasons"] == 5
+
+
+def test_get_details_non_fatal_on_error(monkeypatch):
+    client = TMDbClient(api_key="test_key")
+    monkeypatch.setattr(client, "_request", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert client.get_details(123, media_type="movie") is None
+
+

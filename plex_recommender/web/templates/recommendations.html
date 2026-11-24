@@ -141,16 +141,34 @@
     <!-- Header & Filter Bar -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6">
-            <div>
-                <h1 class="text-2xl font-bold text-white tracking-tight">Unseen Content Recommendations</h1>
-                <div class="flex flex-wrap items-center gap-3 mt-1">
-                    <p class="text-sm text-slate-400">Filtered against your Plex history. Hover over <span class="text-amber-400 font-bold">(?)</span> to see decision rationale.</p>
+            <div class="space-y-2">
+                <div class="flex flex-wrap items-center gap-3">
+                    <h1 class="text-2xl font-bold text-white tracking-tight">Unseen Content Recommendations</h1>
+                    <!-- Discover / Watchlist View Tabs -->
+                    <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800" role="tablist" aria-label="Recommendations view">
+                        <button type="button" id="tab-view-discover" role="tab" aria-selected="{{ 'true' if selected_view != 'watchlist' else 'false' }}" onclick="switchRecommendationsView('discover')" class="px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view != 'watchlist' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
+                            Discover
+                        </button>
+                        <button type="button" id="tab-view-watchlist" role="tab" aria-selected="{{ 'true' if selected_view == 'watchlist' else 'false' }}" onclick="switchRecommendationsView('watchlist')" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view == 'watchlist' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
+                            <span>Watchlist</span>
+                            <span id="watchlist-count-badge" class="px-1.5 py-0.2 rounded-full text-[10px] font-black {% if selected_view == 'watchlist' %}bg-gray-950/20 text-gray-950{% else %}bg-slate-800 text-amber-400{% endif %}">{{ watchlist_count or 0 }}</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <p id="recs-subtitle" class="text-sm text-slate-400">
+                        {% if selected_view == 'watchlist' %}
+                        Your saved shortlist — live-checked against Plex &amp; Overseerr availability.
+                        {% else %}
+                        Filtered against your Plex history. Click a card for trailer &amp; details, or tap <span class="text-amber-400 font-bold">Match (i)</span> for rationale.
+                        {% endif %}
+                    </p>
                     <!-- Cache status badge (populated by JS) -->
                     <div id="cache-status" class="hidden"></div>
                 </div>
             </div>
 
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
                 <!-- Columns Density Slider (hidden on mobile; grid is fixed at 1-2 cols there) -->
                 <div class="hidden lg:flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" title="Adjust how many recommendation cards are shown per row">
                     <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -169,8 +187,8 @@
                     <span>Tuned Preferences</span>
                 </button>
 
-                <!-- Filters Drawer Toggle -->
-                <button type="button" id="filters-toggle-btn" onclick="toggleFiltersDrawer()" class="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">
+                <!-- Filters Drawer Toggle (Discover view) -->
+                <button type="button" id="filters-toggle-btn" onclick="toggleFiltersDrawer()" class="{% if selected_view == 'watchlist' %}hidden {% endif %}inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition">
                     <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                     </svg>
@@ -181,6 +199,19 @@
                     </svg>
                 </button>
             </div>
+        </div>
+
+        <!-- Watchlist Quick Filters Bar (visible only in Watchlist view) -->
+        <div id="watchlist-filter-bar" class="{% if selected_view != 'watchlist' %}hidden {% endif %}border-t border-slate-800 px-6 py-3 flex flex-wrap items-center justify-between gap-3 bg-slate-950/30 rounded-b-2xl">
+            <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800" role="group" aria-label="Watchlist format filter">
+                <button type="button" data-wl-type="all" onclick="setWatchlistTypeFilter('all')" class="wl-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition bg-slate-800 text-white shadow-sm">All</button>
+                <button type="button" data-wl-type="movie" onclick="setWatchlistTypeFilter('movie')" class="wl-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Movies</button>
+                <button type="button" data-wl-type="show" onclick="setWatchlistTypeFilter('show')" class="wl-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">TV Shows</button>
+            </div>
+            <label class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 cursor-pointer select-none">
+                <input type="checkbox" id="watchlist-available-only" onchange="loadWatchlist()" class="w-4 h-4 rounded bg-slate-900 border-slate-600 text-emerald-500 focus:ring-emerald-500">
+                <span class="text-xs font-semibold text-slate-300">On Plex only</span>
+            </label>
         </div>
 
         <!-- Active Filter Pills Summary (visible when drawer is collapsed & filters differ from defaults) -->
@@ -325,9 +356,15 @@
         const kidsLabel = document.getElementById('kids-label');
         const paginationEl = document.getElementById('recs-pagination');
 
-        // Current page (1-based). Capped server-side at 3 page sets.
+        // Current view ('discover' | 'watchlist') and page
+        let currentView = {{ (selected_view or 'discover') | tojson }};
+        let watchlistTypeFilter = 'all';
         let currentPage = parseInt(new URLSearchParams(window.location.search).get('page') || '1', 10) || 1;
         let currentRequestId = 0;
+
+        // Exposed helpers for swapping in results / switching tabs
+        window.applyColumnsToGrids = applyColumnsToGrids;
+        window.skeletonMarkup = skeletonMarkup;
 
         const tmdbCategoriesMap = {{ (tmdb_categories_map or {}) | tojson }};
         const favoredCategories = {{ (category_options or []) | tojson }};
@@ -636,6 +673,9 @@
                 const dataFast = await resFast.json();
                 if (reqId !== currentRequestId) return; // Stale request
 
+                if (typeof dataFast.watchlist_count === 'number') {
+                    updateWatchlistBadge(dataFast.watchlist_count);
+                }
                 if (dataFast.is_complete || dataFast.from_cache) {
                     await swapInResults(dataFast.html || '');
                     renderCacheStatus(dataFast);
@@ -656,6 +696,9 @@
                 const dataFull = await resFull.json();
                 if (reqId !== currentRequestId) return; // Stale request
 
+                if (typeof dataFull.watchlist_count === 'number') {
+                    updateWatchlistBadge(dataFull.watchlist_count);
+                }
                 await swapInResults(dataFull.html || '');
                 renderCacheStatus(dataFull);
                 renderPagination(dataFull);
@@ -755,6 +798,110 @@
             });
         }
 
+        // --- Discover / Watchlist View Switching ---
+        function updateWatchlistBadge(count) {
+            const badge = document.getElementById('watchlist-count-badge');
+            if (badge && typeof count === 'number') {
+                badge.textContent = String(count);
+            }
+        }
+        window.updateWatchlistBadge = updateWatchlistBadge;
+
+        async function loadWatchlist() {
+            const reqId = ++currentRequestId;
+            resultsEl.innerHTML = skeletonMarkup('Loading your saved watchlist…');
+            cacheStatusEl.classList.add('hidden');
+            paginationEl.classList.add('hidden');
+
+            const availOnly = document.getElementById('watchlist-available-only')?.checked ? '1' : '0';
+            const params = new URLSearchParams();
+            params.set('type', watchlistTypeFilter);
+            params.set('available', availOnly);
+            history.replaceState(null, '', '/recommendations?view=watchlist');
+
+            try {
+                const res = await fetch('/api/watchlist?' + params.toString(), {
+                    headers: { 'X-Requested-With': 'fetch' }
+                });
+                const data = await res.json();
+                if (reqId !== currentRequestId) return;
+                if (typeof data.watchlist_count === 'number') {
+                    updateWatchlistBadge(data.watchlist_count);
+                }
+                await swapInResults(data.html || '');
+            } catch (e) {
+                if (reqId !== currentRequestId) return;
+                resultsEl.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
+                    <div class="text-amber-400 font-bold text-lg">Could not load watchlist</div>
+                    <p class="text-sm text-slate-300">${escapeHtml(e)}</p>
+                </div>`;
+            }
+        }
+        window.loadWatchlist = loadWatchlist;
+
+        function setWatchlistTypeFilter(t) {
+            watchlistTypeFilter = t || 'all';
+            document.querySelectorAll('.wl-type-btn').forEach((btn) => {
+                const active = btn.dataset.wlType === watchlistTypeFilter;
+                btn.className = active
+                    ? 'wl-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition bg-slate-800 text-white shadow-sm'
+                    : 'wl-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white';
+            });
+            loadWatchlist();
+        }
+        window.setWatchlistTypeFilter = setWatchlistTypeFilter;
+
+        function switchRecommendationsView(view) {
+            const nextView = view === 'watchlist' ? 'watchlist' : 'discover';
+            currentView = nextView;
+            window.__recsCurrentView = nextView;
+
+            const tabDisc = document.getElementById('tab-view-discover');
+            const tabWl = document.getElementById('tab-view-watchlist');
+            const badge = document.getElementById('watchlist-count-badge');
+            const subtitle = document.getElementById('recs-subtitle');
+            const filtersToggleBtn = document.getElementById('filters-toggle-btn');
+            const wlFilterBar = document.getElementById('watchlist-filter-bar');
+
+            const isWl = nextView === 'watchlist';
+            if (tabDisc) {
+                tabDisc.setAttribute('aria-selected', isWl ? 'false' : 'true');
+                tabDisc.className = !isWl
+                    ? 'px-3 py-1 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm'
+                    : 'px-3 py-1 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+            }
+            if (tabWl) {
+                tabWl.setAttribute('aria-selected', isWl ? 'true' : 'false');
+                tabWl.className = isWl
+                    ? 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm'
+                    : 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+            }
+            if (badge) {
+                badge.className = isWl
+                    ? 'px-1.5 py-0.2 rounded-full text-[10px] font-black bg-gray-950/20 text-gray-950'
+                    : 'px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-800 text-amber-400';
+            }
+            if (subtitle) {
+                subtitle.innerHTML = isWl
+                    ? 'Your saved shortlist — live-checked against Plex &amp; Overseerr availability.'
+                    : 'Filtered against your Plex history. Click a card for trailer &amp; details, or tap <span class="text-amber-400 font-bold">Match (i)</span> for rationale.';
+            }
+            if (filtersToggleBtn) filtersToggleBtn.classList.toggle('hidden', isWl);
+            if (wlFilterBar) wlFilterBar.classList.toggle('hidden', !isWl);
+
+            if (isWl) {
+                if (filtersDrawer) filtersDrawer.classList.add('hidden');
+                if (activeFilterPillsEl) activeFilterPillsEl.classList.add('hidden');
+                loadWatchlist();
+            } else {
+                renderActiveFilterSummary();
+                loadRecommendations();
+            }
+        }
+        window.switchRecommendationsView = switchRecommendationsView;
+        window.__recsCurrentView = currentView;
+
         // Wire up filter changes -> re-fetch (no page reload).
         form.type.addEventListener('change', function () {
             updateCategoryDropdown();
@@ -775,20 +922,49 @@
         });
 
         // Initial background fetch on first load.
-        const initialForce = new URLSearchParams(window.location.search).get('force_refresh');
-        loadRecommendations(initialForce ? { force_refresh: initialForce } : undefined);
+        if (currentView === 'watchlist') {
+            loadWatchlist();
+        } else {
+            const initialForce = new URLSearchParams(window.location.search).get('force_refresh');
+            loadRecommendations(initialForce ? { force_refresh: initialForce } : undefined);
+        }
     })();
 
-    async function requestOverseerr(tmdbId, mediaType, btn) {
-        btn.disabled = true;
-        const originalHtml = btn.innerHTML;
-        btn.innerHTML = '<span>Submitting...</span>';
+    // --- Client-side Media Details Cache & Season Picker / Detail Modal ---
+    const __mediaDetailsCache = new Map();
+
+    async function fetchMediaDetails(tmdbId, mediaType) {
+        const key = `${mediaType}:${tmdbId}`;
+        if (__mediaDetailsCache.has(key)) {
+            return __mediaDetailsCache.get(key);
+        }
+        const params = new URLSearchParams({ tmdb_id: String(tmdbId), media_type: String(mediaType || 'movie') });
+        const res = await fetch('/api/media/details?' + params.toString(), {
+            headers: { 'X-Requested-With': 'fetch' }
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Could not load media details.');
+        }
+        __mediaDetailsCache.set(key, data.details);
+        return data.details;
+    }
+
+    async function requestOverseerr(tmdbId, mediaType, btn, seasonsOverride = null, is4k = false) {
+        if (btn) {
+            btn.disabled = true;
+            btn.dataset.originalHtml = btn.innerHTML;
+            btn.innerHTML = '<span>Submitting...</span>';
+        }
 
         const form = new FormData();
         form.append('tmdb_id', tmdbId);
         form.append('media_type', mediaType);
-        if (mediaType === 'show' || mediaType === 'tv') {
-            form.append('seasons', '1');
+        if (is4k) form.append('is_4k', 'true');
+        const isTv = (mediaType === 'show' || mediaType === 'tv');
+        const seasonsVal = seasonsOverride !== null ? seasonsOverride : (isTv ? '1' : null);
+        if (seasonsVal) {
+            form.append('seasons', String(seasonsVal));
         }
 
         try {
@@ -798,26 +974,169 @@
             });
             const data = await res.json();
             if (data.success) {
-                btn.className = "w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow";
-                btn.innerHTML = (mediaType === 'show' || mediaType === 'tv') ? '<span>✔ Season 1 Requested!</span>' : '<span>✔ Requested!</span>';
+                __mediaDetailsCache.delete(`show:${tmdbId}`);
+                __mediaDetailsCache.delete(`tv:${tmdbId}`);
+                __mediaDetailsCache.delete(`movie:${tmdbId}`);
+
+                let label = '✔ Requested!';
+                if (isTv) {
+                    if (seasonsVal === 'all') label = '✔ All Seasons Requested!';
+                    else if (String(seasonsVal).includes(',')) label = `✔ Seasons ${seasonsVal} Requested!`;
+                    else label = `✔ Season ${seasonsVal || 1} Requested!`;
+                }
+
+                // Update card button/wrapper in grid
+                const wrap = document.querySelector(`[data-overseerr-wrap="${CSS.escape(String(tmdbId))}"]`);
+                const cardBtn = document.getElementById(`req-btn-${tmdbId}`);
+                if (wrap) {
+                    wrap.innerHTML = `<div class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow"><span>${escapeHtml(label)}</span></div>`;
+                } else if (cardBtn) {
+                    cardBtn.disabled = true;
+                    cardBtn.className = "w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow";
+                    cardBtn.textContent = label;
+                }
+                if (btn && btn !== cardBtn) {
+                    btn.className = "w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow";
+                    btn.textContent = label;
+                }
                 if (typeof showToast === 'function') {
                     showToast(data.message || 'Overseerr request submitted successfully!', 'success');
                 }
+                return true;
             } else {
                 if (typeof showToast === 'function') {
                     showToast(data.message || 'Request failed.', 'error');
                 }
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = btn.dataset.originalHtml || '<span>Request</span>';
+                }
+                return false;
             }
         } catch (e) {
             if (typeof showToast === 'function') {
                 showToast('Request failed: ' + e, 'error');
             }
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = btn.dataset.originalHtml || '<span>Request</span>';
+            }
+            return false;
         }
     }
+
+    async function openSeasonPicker(tmdbId) {
+        const popoverId = `season-picker-${tmdbId}`;
+        const popover = document.getElementById(popoverId);
+        const body = document.getElementById(`season-picker-body-${tmdbId}`);
+        if (!popover || !body) return;
+
+        const wasHidden = popover.classList.contains('hidden');
+        togglePopover(popoverId);
+        if (!wasHidden) return; // Closing
+
+        body.innerHTML = '<div class="text-xs text-slate-400 py-2 text-center">Loading seasons…</div>';
+        try {
+            const details = await fetchMediaDetails(tmdbId, 'show');
+            const seasons = details.seasons || [];
+            if (!seasons.length) {
+                body.innerHTML = '<div class="text-xs text-slate-400 py-2 text-center">No season list available.</div>';
+                return;
+            }
+            const ovSeasons = (details.overseerr_info && details.overseerr_info.seasons) || {};
+
+            const container = document.createElement('div');
+            container.className = 'space-y-2';
+
+            const list = document.createElement('div');
+            list.className = 'max-h-44 overflow-y-auto space-y-1 pr-1';
+
+            let hasRequestable = false;
+            seasons.forEach((s) => {
+                const sNum = s.season_number;
+                const ov = ovSeasons[String(sNum)] || ovSeasons[sNum];
+                const sc = ov ? ov.status_code : 1;
+                const locked = sc in {2: 1, 3: 1, 4: 1, 5: 1};
+                if (!locked) hasRequestable = true;
+
+                const row = document.createElement('label');
+                row.className = `flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border text-xs ${locked ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed' : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-200 cursor-pointer'}`;
+
+                const left = document.createElement('span');
+                left.className = 'flex items-center gap-2 min-w-0';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = String(sNum);
+                cb.className = 'season-cb w-3.5 h-3.5 rounded bg-slate-950 border-slate-600 text-indigo-500 focus:ring-indigo-500';
+                cb.disabled = locked;
+                if (!locked && sNum === 1) cb.checked = true;
+
+                const labelTxt = document.createElement('span');
+                labelTxt.className = 'truncate font-medium';
+                labelTxt.textContent = `Season ${sNum} (${s.episode_count || 0} eps)`;
+
+                left.appendChild(cb);
+                left.appendChild(labelTxt);
+                row.appendChild(left);
+
+                if (locked && ov) {
+                    const stBadge = document.createElement('span');
+                    stBadge.className = sc === 5
+                        ? 'text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 shrink-0'
+                        : 'text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 shrink-0';
+                    stBadge.textContent = sc === 5 ? 'Available' : 'Queued';
+                    row.appendChild(stBadge);
+                }
+
+                list.appendChild(row);
+            });
+            container.appendChild(list);
+
+            if (hasRequestable) {
+                const actions = document.createElement('div');
+                actions.className = 'flex items-center gap-2 pt-1';
+
+                const allBtn = document.createElement('button');
+                allBtn.type = 'button';
+                allBtn.className = 'px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 transition';
+                allBtn.textContent = 'All Seasons';
+                allBtn.addEventListener('click', () => {
+                    requestOverseerr(tmdbId, 'show', allBtn, 'all');
+                });
+
+                const reqBtn = document.createElement('button');
+                reqBtn.type = 'button';
+                reqBtn.className = 'flex-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold transition';
+                reqBtn.textContent = 'Request Selected';
+                reqBtn.addEventListener('click', () => {
+                    const checked = Array.from(container.querySelectorAll('.season-cb:checked')).map((el) => el.value);
+                    if (!checked.length) {
+                        if (typeof showToast === 'function') showToast('Select at least one season.', 'info');
+                        return;
+                    }
+                    requestOverseerr(tmdbId, 'show', reqBtn, checked.join(','));
+                });
+
+                actions.appendChild(allBtn);
+                actions.appendChild(reqBtn);
+                container.appendChild(actions);
+            } else {
+                const doneNote = document.createElement('div');
+                doneNote.className = 'text-[11px] text-emerald-400 text-center py-1 font-semibold';
+                doneNote.textContent = 'All seasons are already available or queued.';
+                container.appendChild(doneNote);
+            }
+
+            body.replaceChildren(container);
+        } catch (e) {
+            const errDiv = document.createElement('div');
+            errDiv.className = 'text-xs text-rose-400 py-2 text-center';
+            errDiv.textContent = e.message || 'Could not load seasons.';
+            body.replaceChildren(errDiv);
+        }
+    }
+    window.openSeasonPicker = openSeasonPicker;
 
     async function markAsSeen(tmdbId, mediaType, title, year, btn) {
         const card = document.getElementById(`card-${tmdbId}`);
@@ -840,6 +1159,9 @@
             });
             const data = await res.json();
             if (data.success) {
+                if (typeof data.watchlist_count === 'number' && typeof updateWatchlistBadge === 'function') {
+                    updateWatchlistBadge(data.watchlist_count);
+                }
                 if (typeof showToast === 'function') {
                     showToast(`Marked "${title || 'Title'}" as seen.`, 'success', 5000, {
                         text: 'Undo',
@@ -960,6 +1282,9 @@
             const data = await res.json();
             if (btn) btn.disabled = false;
             if (data.success) {
+                if (typeof data.watchlist_count === 'number' && typeof updateWatchlistBadge === 'function') {
+                    updateWatchlistBadge(data.watchlist_count);
+                }
                 if (btn) {
                     btn.dataset.downvoted = '1';
                     btn.className = 'p-1.5 rounded-lg border transition flex items-center justify-center bg-rose-500/20 text-rose-400 border-rose-500/40';
@@ -1263,7 +1588,487 @@
     function closeHiddenModal() {
         document.getElementById('hidden-modal').classList.add('hidden');
     }
+
+    // --- Watchlist Toggle ---
+    function syncWatchlistButtonUI(btn, inWatchlist) {
+        if (!btn) return;
+        btn.dataset.inWatchlist = inWatchlist ? '1' : '0';
+        btn.className = inWatchlist
+            ? 'p-1.5 rounded-lg border transition flex items-center justify-center bg-amber-500/20 text-amber-400 border-amber-500/40'
+            : 'p-1.5 rounded-lg border transition flex items-center justify-center bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60';
+        btn.title = inWatchlist ? 'Saved to Watchlist — click to remove' : 'Save to Watchlist';
+        btn.setAttribute('aria-label', btn.title);
+        const svg = btn.querySelector('svg');
+        if (svg) {
+            if (inWatchlist) {
+                svg.classList.remove('fill-none', 'stroke-current', 'stroke-2');
+                svg.classList.add('fill-current');
+            } else {
+                svg.classList.remove('fill-current');
+                svg.classList.add('fill-none', 'stroke-current', 'stroke-2');
+            }
+        }
+    }
+
+    async function toggleWatchlistItem(payload, cardBtn) {
+        if (cardBtn) cardBtn.disabled = true;
+        const form = new FormData();
+        form.append('tmdb_id', payload.tmdb_id);
+        form.append('media_type', payload.media_type || 'movie');
+        form.append('title', payload.title || '');
+        if (payload.year) form.append('year', String(payload.year));
+        if (payload.poster_url) form.append('poster_url', payload.poster_url);
+        if (payload.rating) form.append('rating', String(payload.rating));
+        if (payload.genres) form.append('genres', Array.isArray(payload.genres) ? payload.genres.join(',') : String(payload.genres));
+        if (payload.summary) form.append('summary', payload.summary);
+
+        try {
+            const res = await fetch('/api/watchlist/toggle', { method: 'POST', body: form });
+            const data = await res.json();
+            if (cardBtn) cardBtn.disabled = false;
+            if (!res.ok || !data.success) {
+                if (typeof showToast === 'function') showToast(data.error || 'Could not update watchlist.', 'error');
+                return null;
+            }
+
+            const inWl = Boolean(data.in_watchlist);
+            const gridBtn = document.getElementById(`watchlist-btn-${payload.tmdb_id}`);
+            syncWatchlistButtonUI(gridBtn, inWl);
+            syncWatchlistButtonUI(cardBtn, inWl);
+            __mediaDetailsCache.delete(`${payload.media_type === 'show' ? 'show' : 'movie'}:${payload.tmdb_id}`);
+
+            if (typeof data.watchlist_count === 'number' && typeof updateWatchlistBadge === 'function') {
+                updateWatchlistBadge(data.watchlist_count);
+            }
+
+            if (!inWl && window.__recsCurrentView === 'watchlist') {
+                const card = document.getElementById(`card-${payload.tmdb_id}`);
+                if (card) {
+                    card.classList.add('transition-all', 'duration-300', 'scale-95', 'opacity-0');
+                    setTimeout(() => {
+                        card.remove();
+                        if (!document.querySelector('#final-recs-grid > div')) {
+                            loadWatchlist();
+                        }
+                    }, 300);
+                }
+            }
+
+            if (typeof showToast === 'function') {
+                showToast(
+                    inWl
+                        ? `Saved "${payload.title || 'Title'}" to your Watchlist.`
+                        : `Removed "${payload.title || 'Title'}" from your Watchlist.`,
+                    inWl ? 'success' : 'info'
+                );
+            }
+            return inWl;
+        } catch (e) {
+            if (cardBtn) cardBtn.disabled = false;
+            if (typeof showToast === 'function') showToast('Error updating watchlist: ' + e, 'error');
+            return null;
+        }
+    }
+
+    // Delegated click handler on #recs-results for card detail modal & watchlist buttons
+    document.getElementById('recs-results')?.addEventListener('click', (event) => {
+        const wlBtn = event.target.closest('[data-watchlist-toggle]');
+        if (wlBtn) {
+            event.stopPropagation();
+            toggleWatchlistItem({
+                tmdb_id: wlBtn.dataset.tmdbId,
+                media_type: wlBtn.dataset.mediaType,
+                title: wlBtn.dataset.title,
+                year: wlBtn.dataset.year,
+                poster_url: wlBtn.dataset.posterUrl,
+                rating: wlBtn.dataset.rating,
+                genres: wlBtn.dataset.genres,
+                summary: wlBtn.dataset.summary,
+            }, wlBtn);
+            return;
+        }
+
+        const detailTrigger = event.target.closest('[data-open-detail]');
+        if (detailTrigger) {
+            const tid = detailTrigger.dataset.openDetail;
+            const mtype = detailTrigger.dataset.mediaType || 'movie';
+            const mscore = detailTrigger.dataset.matchScore || '';
+            openMediaDetailModal(tid, mtype, mscore);
+        }
+    });
+
+    // --- Title Detail & Trailer Modal ---
+    async function openMediaDetailModal(tmdbId, mediaType, matchScore) {
+        const modal = document.getElementById('media-detail-modal');
+        const body = document.getElementById('media-detail-body');
+        if (!modal || !body) return;
+
+        modal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+
+        body.innerHTML = `
+            <div class="p-10 text-center space-y-3">
+                <svg class="animate-spin w-6 h-6 text-amber-400 mx-auto" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <div class="text-xs text-slate-400 font-medium">Loading trailer, cast &amp; availability…</div>
+            </div>
+        `;
+
+        try {
+            const d = await fetchMediaDetails(tmdbId, mediaType);
+            renderMediaDetailContent(body, d, matchScore);
+        } catch (e) {
+            const errWrap = document.createElement('div');
+            errWrap.className = 'p-8 text-center space-y-3';
+            const titleEl = document.createElement('div');
+            titleEl.className = 'text-amber-400 font-bold text-sm';
+            titleEl.textContent = 'Could not load media details';
+            const msgEl = document.createElement('p');
+            msgEl.className = 'text-xs text-slate-400';
+            msgEl.textContent = e.message || 'Unknown error';
+            errWrap.appendChild(titleEl);
+            errWrap.appendChild(msgEl);
+            body.replaceChildren(errWrap);
+        }
+    }
+
+    function closeMediaDetailModal() {
+        const modal = document.getElementById('media-detail-modal');
+        const body = document.getElementById('media-detail-body');
+        if (modal) modal.classList.add('hidden');
+        if (body) body.innerHTML = ''; // Stops any playing trailer iframe
+        document.body.classList.remove('overflow-hidden');
+    }
+
+    function renderMediaDetailContent(container, d, matchScore) {
+        const isTv = d.media_type === 'show';
+        const metaParts = [];
+        if (d.year) metaParts.push(String(d.year));
+        metaParts.push(isTv ? 'TV Series' : 'Movie');
+        if (!isTv && d.runtime) {
+            const h = Math.floor(d.runtime / 60);
+            const m = d.runtime % 60;
+            metaParts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+        } else if (isTv && d.number_of_seasons) {
+            metaParts.push(`${d.number_of_seasons} Season${d.number_of_seasons !== 1 ? 's' : ''}`);
+            if (d.number_of_episodes) metaParts.push(`${d.number_of_episodes} Episodes`);
+        }
+        if (d.language_name) metaParts.push(d.language_name);
+
+        const safeTitle = escapeHtml(d.title);
+        const safeTagline = d.tagline ? `<p class="text-xs italic text-amber-300/90 mt-0.5">${escapeHtml(d.tagline)}</p>` : '';
+        const matchHtml = matchScore ? `<span class="px-2 py-0.5 rounded-md bg-amber-500 text-gray-950 text-xs font-black">${escapeHtml(matchScore)}% Match</span>` : '';
+
+        const genresHtml = (d.genres || []).map(g =>
+            `<span class="text-[11px] px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-200 border border-slate-700 font-medium">${escapeHtml(g)}</span>`
+        ).join('');
+
+        const directorsHtml = (d.directors && d.directors.length)
+            ? `<div class="text-xs"><span class="text-slate-400 font-semibold">${isTv ? 'Creator(s):' : 'Director(s):'}</span> <span class="text-slate-200">${escapeHtml(d.directors.join(', '))}</span></div>`
+            : '';
+
+        const castHtml = (d.cast && d.cast.length)
+            ? `<div class="space-y-1.5">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Top Cast</div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    ${d.cast.map(c => `
+                        <div class="bg-slate-950/60 border border-slate-800 rounded-lg px-2.5 py-1.5 min-w-0">
+                            <div class="text-xs font-semibold text-slate-200 truncate">${escapeHtml(c.name)}</div>
+                            ${c.character ? `<div class="text-[10px] text-slate-500 truncate">${escapeHtml(c.character)}</div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+               </div>`
+            : '';
+
+        const providersHtml = (d.watch_providers && d.watch_providers.length)
+            ? `<div class="space-y-1.5">
+                <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Streaming (${escapeHtml(d.provider_region || 'US')})</div>
+                <div class="flex flex-wrap gap-2">
+                    ${d.watch_providers.map(p => `
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-200 font-medium">
+                            ${p.logo_url ? `<img src="${escapeHtml(p.logo_url)}" alt="" class="w-4 h-4 rounded">` : ''}
+                            <span>${escapeHtml(p.name)}</span>
+                        </span>
+                    `).join('')}
+                </div>
+               </div>`
+            : '';
+
+        const backdropSection = `
+            <div id="detail-hero" class="relative w-full h-52 sm:h-64 bg-slate-950 overflow-hidden">
+                ${d.backdrop_url ? `<img src="${escapeHtml(d.backdrop_url)}" alt="" class="w-full h-full object-cover opacity-55">` : ''}
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/50 to-slate-950/40"></div>
+                <button type="button" id="detail-close-btn" aria-label="Close details" class="absolute top-3 right-3 z-20 p-2 rounded-full bg-slate-950/75 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700/80 transition">
+                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                </button>
+                ${d.trailer ? `
+                <button type="button" id="detail-play-trailer-btn" class="absolute inset-0 m-auto w-fit h-fit inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-gray-950 font-black text-xs shadow-2xl shadow-black/80 transition transform hover:scale-105 z-10">
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><polygon points="6 4 17 10 6 16 6 4"/></svg>
+                    <span>Play Trailer</span>
+                </button>` : ''}
+            </div>
+        `;
+
+        container.innerHTML = `
+            ${backdropSection}
+            <div class="p-6 space-y-5 -mt-10 relative z-10">
+                <div class="flex flex-col sm:flex-row gap-4 sm:items-end">
+                    ${d.poster_url ? `<img src="${escapeHtml(d.poster_url)}" alt="${safeTitle}" class="w-24 sm:w-28 aspect-[2/3] object-cover rounded-xl border-2 border-slate-800 shadow-2xl shrink-0 bg-slate-950">` : ''}
+                    <div class="space-y-1.5 flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            ${matchHtml}
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-xs font-bold text-amber-400">
+                                ★ ${escapeHtml(d.rating)} <span class="text-slate-400 font-normal">(${escapeHtml((d.vote_count || 0).toLocaleString())})</span>
+                            </span>
+                            ${d.available_on_plex ? '<span class="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold">On Plex</span>' : ''}
+                        </div>
+                        <h2 class="text-xl sm:text-2xl font-black text-white leading-tight">${safeTitle}</h2>
+                        ${safeTagline}
+                        <div class="text-xs text-slate-400 font-medium">${escapeHtml(metaParts.join(' • '))}</div>
+                    </div>
+                </div>
+
+                ${genresHtml ? `<div class="flex flex-wrap gap-1.5">${genresHtml}</div>` : ''}
+
+                <p class="text-sm text-slate-300 leading-relaxed">${escapeHtml(d.overview || 'No synopsis available.')}</p>
+
+                ${directorsHtml}
+                ${castHtml}
+                ${providersHtml}
+
+                <!-- Plex / Overseerr Action Panel -->
+                <div id="detail-request-panel" class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3"></div>
+
+                <!-- Footer: External Links + Watchlist / Seen / Vote Sync -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
+                    <div class="flex items-center gap-2">
+                        ${d.imdb_url ? `<a href="${escapeHtml(d.imdb_url)}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-[#F5C518] hover:bg-[#e4b50e] text-gray-950 font-black text-xs transition">IMDb ↗</a>` : ''}
+                        ${d.tmdb_url ? `<a href="${escapeHtml(d.tmdb_url)}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition">TMDb ↗</a>` : ''}
+                        ${d.overseerr_url ? `<a href="${escapeHtml(d.overseerr_url)}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-900/60 text-indigo-300 font-bold text-xs border border-slate-700 transition">Overseerr ↗</a>` : ''}
+                    </div>
+                    <div class="flex items-center gap-2" id="detail-engagement-actions"></div>
+                </div>
+            </div>
+        `;
+
+        // Wire close button
+        container.querySelector('#detail-close-btn')?.addEventListener('click', closeMediaDetailModal);
+
+        // Wire click-to-play privacy-enhanced YouTube trailer embed
+        const trailerBtn = container.querySelector('#detail-play-trailer-btn');
+        if (trailerBtn && d.trailer && d.trailer.key) {
+            trailerBtn.addEventListener('click', () => {
+                const hero = container.querySelector('#detail-hero');
+                if (!hero) return;
+                const iframe = document.createElement('iframe');
+                iframe.className = 'w-full h-full';
+                iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(d.trailer.key)}?autoplay=1&rel=0`;
+                iframe.title = d.trailer.name || 'Trailer';
+                iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+                iframe.allowFullscreen = true;
+                hero.replaceChildren(iframe);
+            });
+        }
+
+        // Populate Plex / Overseerr panel safely
+        const reqPanel = container.querySelector('#detail-request-panel');
+        if (reqPanel) {
+            if (d.available_on_plex) {
+                if (d.plex_url) {
+                    const a = document.createElement('a');
+                    a.href = d.plex_url;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.className = 'w-full inline-flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold text-xs shadow-lg transition';
+                    a.textContent = '▶ Watch on Plex';
+                    reqPanel.replaceChildren(a);
+                } else {
+                    reqPanel.innerHTML = '<div class="text-xs font-bold text-emerald-400 text-center">✔ Available on your Plex Server</div>';
+                }
+            } else if (d.has_overseerr) {
+                const ovInfo = d.overseerr_info || {};
+                if (!isTv) {
+                    if (ovInfo.exists && ovInfo.status_code in {2: 1, 3: 1, 4: 1, 5: 1}) {
+                        reqPanel.innerHTML = `<div class="text-xs font-bold text-indigo-300 text-center">Overseerr Status: ${escapeHtml(ovInfo.status_name || 'In Queue')}</div>`;
+                    } else {
+                        const row = document.createElement('div');
+                        row.className = 'flex items-center gap-3';
+                        const reqBtn = document.createElement('button');
+                        reqBtn.type = 'button';
+                        reqBtn.className = 'flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs transition';
+                        reqBtn.textContent = '+ Request Movie on Overseerr';
+
+                        const label4k = document.createElement('label');
+                        label4k.className = 'inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none px-2.5 py-2 rounded-lg bg-slate-900 border border-slate-800';
+                        const cb4k = document.createElement('input');
+                        cb4k.type = 'checkbox';
+                        cb4k.className = 'w-3.5 h-3.5 rounded bg-slate-950 border-slate-600 text-indigo-500';
+                        const span4k = document.createElement('span');
+                        span4k.textContent = '4K';
+                        label4k.appendChild(cb4k);
+                        label4k.appendChild(span4k);
+
+                        reqBtn.addEventListener('click', () => {
+                            requestOverseerr(d.tmdb_id, 'movie', reqBtn, null, cb4k.checked);
+                        });
+                        row.appendChild(reqBtn);
+                        row.appendChild(label4k);
+                        reqPanel.replaceChildren(row);
+                    }
+                } else {
+                    // TV Seasons Picker inside Detail Modal
+                    const heading = document.createElement('div');
+                    heading.className = 'flex items-center justify-between';
+                    const hTitle = document.createElement('div');
+                    hTitle.className = 'text-xs font-bold text-white';
+                    hTitle.textContent = 'Request Seasons via Overseerr';
+                    heading.appendChild(hTitle);
+
+                    const seasons = d.seasons || [];
+                    const ovSeasons = ovInfo.seasons || {};
+                    const grid = document.createElement('div');
+                    grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1';
+
+                    let requestableCount = 0;
+                    seasons.forEach((s) => {
+                        const sNum = s.season_number;
+                        const ov = ovSeasons[String(sNum)] || ovSeasons[sNum];
+                        const sc = ov ? ov.status_code : 1;
+                        const locked = sc in {2: 1, 3: 1, 4: 1, 5: 1};
+                        if (!locked) requestableCount++;
+
+                        const itemLabel = document.createElement('label');
+                        itemLabel.className = `flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${locked ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-not-allowed' : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-200 cursor-pointer'}`;
+
+                        const left = document.createElement('span');
+                        left.className = 'flex items-center gap-2 min-w-0';
+                        const cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.value = String(sNum);
+                        cb.className = 'modal-season-cb w-3.5 h-3.5 rounded bg-slate-950 border-slate-600 text-indigo-500';
+                        cb.disabled = locked;
+                        if (!locked && sNum === 1) cb.checked = true;
+
+                        const txt = document.createElement('span');
+                        txt.className = 'truncate font-medium';
+                        txt.textContent = `S${sNum} • ${s.episode_count || 0} eps`;
+                        left.appendChild(cb);
+                        left.appendChild(txt);
+                        itemLabel.appendChild(left);
+
+                        if (locked && ov) {
+                            const b = document.createElement('span');
+                            b.className = sc === 5
+                                ? 'text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400'
+                                : 'text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300';
+                            b.textContent = sc === 5 ? 'Available' : 'Queued';
+                            itemLabel.appendChild(b);
+                        }
+                        grid.appendChild(itemLabel);
+                    });
+
+                    reqPanel.appendChild(heading);
+                    if (seasons.length) {
+                        reqPanel.appendChild(grid);
+                    }
+
+                    if (requestableCount > 0) {
+                        const btnRow = document.createElement('div');
+                        btnRow.className = 'flex items-center gap-2 pt-1';
+
+                        const selAllBtn = document.createElement('button');
+                        selAllBtn.type = 'button';
+                        selAllBtn.className = 'px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition';
+                        selAllBtn.textContent = 'Request All';
+                        selAllBtn.addEventListener('click', () => {
+                            requestOverseerr(d.tmdb_id, 'show', selAllBtn, 'all');
+                        });
+
+                        const reqSelBtn = document.createElement('button');
+                        reqSelBtn.type = 'button';
+                        reqSelBtn.className = 'flex-1 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-bold transition';
+                        reqSelBtn.textContent = 'Request Selected Seasons';
+                        reqSelBtn.addEventListener('click', () => {
+                            const picked = Array.from(reqPanel.querySelectorAll('.modal-season-cb:checked')).map((el) => el.value);
+                            if (!picked.length) {
+                                if (typeof showToast === 'function') showToast('Select at least one season.', 'info');
+                                return;
+                            }
+                            requestOverseerr(d.tmdb_id, 'show', reqSelBtn, picked.join(','));
+                        });
+
+                        btnRow.appendChild(selAllBtn);
+                        btnRow.appendChild(reqSelBtn);
+                        reqPanel.appendChild(btnRow);
+                    } else if (ovInfo.exists) {
+                        const done = document.createElement('div');
+                        done.className = 'text-xs font-bold text-indigo-300 text-center';
+                        done.textContent = `Overseerr Status: ${ovInfo.status_name || 'In Queue'}`;
+                        reqPanel.appendChild(done);
+                    }
+                }
+            } else {
+                reqPanel.classList.add('hidden');
+            }
+        }
+
+        // Engagement buttons in modal footer (Watchlist + Mark as Seen)
+        const engBox = container.querySelector('#detail-engagement-actions');
+        if (engBox) {
+            const wlBtn = document.createElement('button');
+            wlBtn.type = 'button';
+            const updateModalWlLabel = (saved) => {
+                wlBtn.className = saved
+                    ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 text-xs font-bold transition'
+                    : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition';
+                wlBtn.textContent = saved ? '★ In Watchlist' : '☆ Save to Watchlist';
+            };
+            updateModalWlLabel(Boolean(d.in_watchlist));
+            wlBtn.addEventListener('click', async () => {
+                const res = await toggleWatchlistItem({
+                    tmdb_id: d.tmdb_id,
+                    media_type: d.media_type,
+                    title: d.title,
+                    year: d.year,
+                    poster_url: d.poster_url,
+                    rating: d.rating,
+                    genres: d.genres || [],
+                    summary: d.overview || '',
+                }, null);
+                if (res !== null) updateModalWlLabel(res);
+            });
+
+            const seenBtn = document.createElement('button');
+            seenBtn.type = 'button';
+            seenBtn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/20 text-slate-300 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/40 text-xs font-bold transition';
+            seenBtn.textContent = '✓ Mark as seen';
+            seenBtn.addEventListener('click', async () => {
+                await markAsSeen(d.tmdb_id, d.media_type, d.title, d.year, seenBtn);
+                closeMediaDetailModal();
+            });
+
+            engBox.appendChild(wlBtn);
+            engBox.appendChild(seenBtn);
+        }
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeMediaDetailModal();
+            closeHiddenModal();
+        }
+    });
 </script>
+
+<!-- Title Detail & Trailer Modal -->
+<div id="media-detail-modal" onclick="if (event.target === this) closeMediaDetailModal()" class="fixed inset-0 z-[105] hidden bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div id="media-detail-body"></div>
+    </div>
+</div>
 
 <!-- Tuned Preferences Modal -->
 <div id="hidden-modal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">

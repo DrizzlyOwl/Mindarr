@@ -608,6 +608,19 @@ def test_sources_page_limits_to_100_items():
         assert resp.text.count('<tr class="hover:bg-slate-800/40') == 100
 
 
+def test_chartjs_is_vendored_locally_for_csp():
+    with TestClient(app) as client:
+        _login(client)
+        dash = client.get("/")
+        assert dash.status_code == 200
+        assert "/static/js/chart.umd.min.js" in dash.text
+        assert "cdn.jsdelivr.net" not in dash.text
+
+        js = client.get("/static/js/chart.umd.min.js")
+        assert js.status_code == 200
+        assert "Chart" in js.text
+
+
 def test_nav_submenu_contains_sources():
     with TestClient(app) as client:
         _login(client)

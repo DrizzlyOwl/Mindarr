@@ -1,4 +1,6 @@
 import logging
+import time
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 import concurrent.futures
@@ -284,6 +286,8 @@ class TMDbClient:
         adapter = HTTPAdapter(pool_connections=25, pool_maxsize=25, max_retries=2)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+        self._details_cache: Dict[Tuple[str, int], Tuple[float, Dict[str, Any]]] = {}
+        self._details_lock = threading.Lock()
 
     @property
     def api_key(self) -> Optional[str]:
@@ -536,6 +540,193 @@ class TMDbClient:
         """Get direct browser link to the title on TMDb web interface."""
         mtype = "tv" if str(media_type).lower() in ("show", "tv", "episode") else "movie"
         return f"https://www.themoviedb.org/{mtype}/{item_id}"
+
+    def get_details(
+        self,
+        item_id: int,
+        media_type: str = "movie",
+        force_refresh: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch rich metadata, trailer, cast/crew, watch providers, and TV seasons."""
+        if not self.is_configured():
+            return None
+
+        is_tv = str(media_type).lower() in ("show", "tv", "episode")
+        ep_type = "tv" if is_tv else "movie"
+        canon_type = "show" if is_tv else "movie"
+        cache_key = (ep_type, int(item_id))
+
+        now = time.time()
+        if not force_refresh:
+            with self._details_lock:
+                entry = self._details_cache.get(cache_key)
+                if entry and (now - entry[0] < 900):
+                    return entry[1]
+
+        try:
+            raw = self._request(
+                f"/{ep_type}/{int(item_id)}",
+                {"append_to_response": "videos,credits,watch/providers,external_ids"},
+            )
+        except Exception as e:
+            logger.debug(f"Could not fetch TMDb details for {ep_type} {item_id}: {e}")
+            return None
+
+        title = raw.get("title") or raw.get("name") or "Unknown"
+        release_date = raw.get("release_date") or raw.get("first_air_date") or ""
+        year = int(release_date[:4]) if len(release_date) >= 4 and release_date[:4].isdigit() else None
+
+        poster_path = raw.get("poster_path")
+        poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else None
+        backdrop_path = raw.get("backdrop_path")
+        backdrop_url = f"https://image.tmdb.org/t/p/w780{backdrop_path}" if backdrop_path else None
+
+        genre_names: List[str] = []
+        seen_g: Set[str] = set()
+        for g in raw.get("genres") or []:
+            gname = g.get("name") if isinstance(g, dict) else str(g)
+            canon = to_canonical_genre(gname)
+            if canon and canon not in seen_g:
+                seen_g.add(canon)
+                genre_names.append(canon)
+
+        orig_lang = raw.get("original_language", "en")
+        language_map = {
+            "en": "English", "ja": "Japanese", "ko": "Korean", "fr": "French",
+            "es": "Spanish", "de": "German", "it": "Italian", "da": "Danish",
+            "sv": "Swedish", "no": "Norwegian", "nl": "Dutch", "zh": "Chinese",
+            "pt": "Portuguese", "hi": "Hindi", "ru": "Russian", "pl": "Polish",
+        }
+        lang_name = language_map.get(orig_lang, (orig_lang or "EN").upper())
+
+        runtime = raw.get("runtime")
+        if not runtime and is_tv:
+            ert = raw.get("episode_run_time") or []
+            if isinstance(ert, list) and ert:
+                runtime = ert[0]
+
+        # Directors / Creators
+        directors: List[str] = []
+        if is_tv:
+            for c in raw.get("created_by") or []:
+                if c.get("name") and c["name"] not in directors:
+                    directors.append(c["name"])
+        credits_data = raw.get("credits") or {}
+        if not directors:
+            for crew in credits_data.get("crew") or []:
+                if crew.get("job") == "Director" and crew.get("name") and crew["name"] not in directors:
+                    directors.append(crew["name"])
+
+        cast: List[Dict[str, Any]] = []
+        for actor in (credits_data.get("cast") or [])[:8]:
+            if not actor.get("name"):
+                continue
+            prof = actor.get("profile_path")
+            cast.append({
+                "name": actor["name"],
+                "character": actor.get("character") or "",
+                "profile_url": f"https://image.tmdb.org/t/p/w185{prof}" if prof else None,
+            })
+
+        # Pick best YouTube trailer
+        trailer = None
+        videos = (raw.get("videos") or {}).get("results") or []
+        yt_videos = [v for v in videos if (v.get("site") or "").lower() == "youtube" and v.get("key")]
+        if yt_videos:
+            def _video_rank(v: Dict[str, Any]) -> Tuple[int, int]:
+                vtype = (v.get("type") or "").lower()
+                type_score = 3 if vtype == "trailer" else (2 if vtype == "teaser" else 1)
+                official_score = 1 if v.get("official") else 0
+                return (type_score, official_score)
+
+            best = max(yt_videos, key=_video_rank)
+            trailer = {
+                "key": best["key"],
+                "name": best.get("name") or "Trailer",
+                "type": best.get("type") or "Trailer",
+            }
+
+        # TV Seasons
+        seasons: List[Dict[str, Any]] = []
+        if is_tv:
+            raw_seasons = raw.get("seasons") or []
+            positive_seasons = [s for s in raw_seasons if (s.get("season_number") or 0) > 0]
+            chosen = positive_seasons if positive_seasons else raw_seasons
+            for s in sorted(chosen, key=lambda x: x.get("season_number") or 0):
+                snum = s.get("season_number")
+                if snum is None:
+                    continue
+                seasons.append({
+                    "season_number": int(snum),
+                    "name": s.get("name") or f"Season {snum}",
+                    "episode_count": int(s.get("episode_count") or 0),
+                    "air_date": s.get("air_date") or "",
+                })
+
+        # Watch Providers (prefer US -> GB -> first available with flatrate)
+        watch_providers: List[Dict[str, Any]] = []
+        provider_region = None
+        wp_results = (raw.get("watch/providers") or {}).get("results") or {}
+        if isinstance(wp_results, dict):
+            candidate_regions = ["US", "GB"] + [k for k in wp_results.keys() if k not in ("US", "GB")]
+            for reg in candidate_regions:
+                reg_data = wp_results.get(reg)
+                if not isinstance(reg_data, dict):
+                    continue
+                flatrate = reg_data.get("flatrate") or []
+                if flatrate:
+                    provider_region = reg
+                    for p in flatrate[:6]:
+                        if p.get("provider_name"):
+                            logo = p.get("logo_path")
+                            watch_providers.append({
+                                "name": p["provider_name"],
+                                "logo_url": f"https://image.tmdb.org/t/p/w92{logo}" if logo else None,
+                            })
+                    break
+
+        ext = raw.get("external_ids") or {}
+        imdb_id = ext.get("imdb_id") or raw.get("imdb_id")
+        tvdb_id = str(ext["tvdb_id"]) if ext.get("tvdb_id") else None
+
+        details = {
+            "tmdb_id": str(item_id),
+            "media_type": canon_type,
+            "title": title,
+            "tagline": raw.get("tagline") or "",
+            "overview": raw.get("overview") or "",
+            "release_date": release_date,
+            "year": year,
+            "rating": round(float(raw.get("vote_average") or 0), 1),
+            "vote_count": int(raw.get("vote_count") or 0),
+            "runtime": int(runtime) if runtime else None,
+            "status": raw.get("status") or "",
+            "genres": genre_names,
+            "poster_url": poster_url,
+            "backdrop_url": backdrop_url,
+            "original_language": orig_lang,
+            "language_name": lang_name,
+            "imdb_id": imdb_id,
+            "tvdb_id": tvdb_id,
+            "imdb_url": f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else None,
+            "tmdb_url": self.get_web_url(item_id, media_type=canon_type),
+            "directors": directors,
+            "cast": cast,
+            "trailer": trailer,
+            "seasons": seasons,
+            "number_of_seasons": raw.get("number_of_seasons") or len(seasons),
+            "number_of_episodes": raw.get("number_of_episodes"),
+            "watch_providers": watch_providers,
+            "provider_region": provider_region,
+        }
+
+        with self._details_lock:
+            if len(self._details_cache) >= 256:
+                oldest = min(self._details_cache.keys(), key=lambda k: self._details_cache[k][0])
+                self._details_cache.pop(oldest, None)
+            self._details_cache[cache_key] = (now, details)
+
+        return details
 
 
 tmdb = TMDbClient()

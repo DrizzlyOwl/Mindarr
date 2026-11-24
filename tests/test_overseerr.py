@@ -176,4 +176,41 @@ def test_overseerr_get_request_queue(mock_get):
     assert updated_queue["movie_99999"]["status_name"] == "PENDING"
 
 
+@patch("requests.Session.get")
+def test_overseerr_get_media_info_parses_seasons(mock_get):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "mediaInfo": {
+            "id": 55,
+            "status": 4,  # PARTIALLY_AVAILABLE
+            "seasons": [
+                {"seasonNumber": 1, "status": 5},
+                {"seasonNumber": 2, "status": 2},
+            ],
+        }
+    }
+    mock_get.return_value = mock_resp
+
+    client = OverseerrClient(base_url="http://10.255.10.30:5055", api_key="test_key")
+    info = client.get_media_info(tmdb_id=1396, media_type="show")
+    assert info["exists"] is True
+    assert info["status_name"] == "PARTIALLY_AVAILABLE"
+    assert info["seasons"][1]["status_name"] == "AVAILABLE"
+    assert info["seasons"][2]["status_name"] == "PENDING"
+
+
+@patch("requests.Session.post")
+def test_overseerr_request_tv_custom_seasons_message(mock_post):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {"id": 3, "status": 2}
+    mock_post.return_value = mock_resp
+
+    client = OverseerrClient(base_url="http://10.255.10.30:5055", api_key="test_key")
+    success, msg = client.request_media(tmdb_id=1396, media_type="tv", seasons=[1, 2])
+    assert success is True
+    assert "Seasons 1, 2" in msg
+
+
 

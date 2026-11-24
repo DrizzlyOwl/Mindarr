@@ -66,7 +66,27 @@
     </div>
 </div>
 {% elif not results.recommendations %}
-{% if results.exhaustion_reason == "exhausted" %}
+{% if is_watchlist_view %}
+<!-- Empty Watchlist -->
+<div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-5 max-w-xl mx-auto shadow-xl">
+    <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+        <svg class="w-7 h-7 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+        </svg>
+    </div>
+    <div class="space-y-1.5">
+        <h3 class="text-lg font-bold text-white">Your Watchlist is Empty</h3>
+        <p class="text-sm text-slate-400 leading-relaxed">
+            Save movies and shows from your recommendations to build a shortlist for movie night, or filter to see when saved titles land on Plex.
+        </p>
+    </div>
+    <div class="pt-1">
+        <button type="button" onclick="switchRecommendationsView('discover')" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 text-xs font-bold transition shadow-lg shadow-amber-500/20">
+            <span>Browse Recommendations</span>
+        </button>
+    </div>
+</div>
+{% elif results.exhaustion_reason == "exhausted" %}
 <!-- Exhausted: All Discoverable Titles Explored -->
 <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-6 max-w-2xl mx-auto shadow-2xl">
     <div class="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
@@ -169,19 +189,21 @@
 <!-- Recommendation Cards Grid -->
 <div class="recs-card-grid recs-grid-cols-3" id="final-recs-grid">
     {% for item in results.recommendations %}
+    {% set in_wl = (watchlist_ids and (item.tmdb_id|string) in watchlist_ids) or item.is_in_watchlist %}
     <div id="card-{{ item.tmdb_id }}" class="bg-slate-900/95 border border-slate-800 rounded-2xl shadow-xl flex flex-col hover:border-slate-700 transition-all duration-300 group relative hover:z-40 focus-within:z-40">
 
         {% if not low_bandwidth and item.poster_url %}
-        <!-- Standard Poster Header -->
-        <div class="poster-container-2-3 rounded-t-2xl">
+        <!-- Standard Poster Header (click opens Detail & Trailer Modal) -->
+        <div class="poster-container-2-3 rounded-t-2xl cursor-pointer" data-open-detail="{{ item.tmdb_id }}" data-media-type="{{ item.media_type }}" data-match-score="{{ item.match_score if item.match_score is not none else '' }}">
             <!-- Inner image wrapper with overflow-hidden for rounded corners & zoom hover -->
             <div class="absolute inset-0 overflow-hidden rounded-t-2xl">
                 <img src="{{ item.poster_url }}" alt="{{ item.title }}" class="w-full h-full object-cover object-center group-hover:scale-105 transition duration-300" loading="lazy">
                 <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent"></div>
             </div>
 
+            {% if item.match_score is not none %}
             <!-- Unified Match Score + Decision Rationale Pill -->
-            <div class="absolute top-3 left-3 z-30">
+            <div class="absolute top-3 left-3 z-30" onclick="event.stopPropagation()">
                 <div class="relative">
                     <button type="button" onclick="togglePopover('match-popover-{{ item.tmdb_id }}')" aria-expanded="false" aria-haspopup="true" class="flex items-center gap-1 bg-amber-500/95 backdrop-blur text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow-lg cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
                         <span>{{ item.match_score }}% Match</span>
@@ -194,10 +216,18 @@
                     </div>
                 </div>
             </div>
+            {% else %}
+            <div class="absolute top-3 left-3 z-20">
+                <span class="inline-flex items-center gap-1 bg-slate-900/90 backdrop-blur text-amber-400 border border-amber-500/30 text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-lg">
+                    <svg class="w-3 h-3 fill-current" viewBox="0 0 20 20"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z"/></svg>
+                    <span>Saved</span>
+                </span>
+            </div>
+            {% endif %}
 
             <!-- Status Badge (On Plex / Overseerr Queue) -->
             {% if item.available_on_plex or item.overseerr_requested %}
-            <div class="absolute top-3 right-3 flex items-center gap-1.5">
+            <div class="absolute top-3 right-3 flex items-center gap-1.5 z-20">
                 {% if item.available_on_plex %}
                 <span class="bg-emerald-500/90 backdrop-blur text-gray-950 text-xs font-bold px-2 py-1 rounded-lg uppercase tracking-wider">On Plex</span>
                 {% elif item.overseerr_requested %}
@@ -215,9 +245,17 @@
             </div>
             {% endif %}
 
+            <!-- Subtle Hover Hint for Detail Modal -->
+            <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200 pointer-events-none z-10">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-950/85 border border-slate-700/80 text-white text-xs font-semibold shadow-xl backdrop-blur-sm">
+                    <svg class="w-3.5 h-3.5 text-amber-400 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                    <span>Details &amp; Trailer</span>
+                </span>
+            </div>
+
             <!-- Bottom Poster Overlay Title -->
-            <div class="absolute bottom-3 left-4 right-4">
-                <h2 class="text-xl font-black text-white leading-tight drop-shadow">{{ item.title }}</h2>
+            <div class="absolute bottom-3 left-4 right-4 z-20">
+                <h2 class="text-xl font-black text-white leading-tight drop-shadow group-hover:text-amber-300 transition">{{ item.title }}</h2>
                 <div class="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs text-slate-300 mt-1 font-medium">
                     {% if item.year %}<span>{{ item.year }}</span>{% endif %}
                     <span>•</span>
@@ -237,6 +275,7 @@
         <!-- Low-Bandwidth Compact Header (Zero image downloads!) -->
         <div class="p-5 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-950 border-b border-slate-800 space-y-3 rounded-t-2xl">
             <div class="flex items-center justify-between">
+                {% if item.match_score is not none %}
                 <!-- Unified Match Score + Decision Rationale Pill -->
                 <div class="relative">
                     <button type="button" onclick="togglePopover('match-popover-lb-{{ item.tmdb_id }}')" aria-expanded="false" aria-haspopup="true" class="flex items-center gap-1 bg-amber-500/95 text-gray-950 text-xs font-black pl-2.5 pr-2 py-1 rounded-lg shadow cursor-pointer hover:bg-amber-400 transition focus:outline-none focus:ring-2 focus:ring-amber-500" aria-label="Why this was recommended">
@@ -249,6 +288,9 @@
                         {{ decision_rationale_content(item) }}
                     </div>
                 </div>
+                {% else %}
+                <span class="inline-flex items-center gap-1 bg-slate-800 text-amber-400 border border-amber-500/30 text-[11px] font-bold px-2 py-0.5 rounded-lg">Saved</span>
+                {% endif %}
 
                 <div class="flex items-center space-x-2">
                     <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold uppercase tracking-wider flex items-center space-x-1">
@@ -263,8 +305,8 @@
                 </div>
             </div>
 
-            <div>
-                <h2 class="text-xl font-black text-white leading-tight">{{ item.title }}</h2>
+            <div class="cursor-pointer" data-open-detail="{{ item.tmdb_id }}" data-media-type="{{ item.media_type }}" data-match-score="{{ item.match_score if item.match_score is not none else '' }}">
+                <h2 class="text-xl font-black text-white leading-tight hover:text-amber-300 transition">{{ item.title }}</h2>
                 <div class="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-xs text-slate-300 mt-1 font-medium">
                     {% if item.year %}<span>{{ item.year }}</span>{% endif %}
                     <span>•</span>
@@ -286,13 +328,16 @@
         <div class="p-5 flex-grow flex flex-col justify-between space-y-4 rounded-b-2xl">
 
             <div class="space-y-3">
+                {% if item.rationale %}
                 <!-- Rationale: single subtle line instead of a boxed callout -->
                 <div class="flex items-start gap-1.5 text-[11px] text-slate-400 leading-relaxed">
                     <svg class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5 fill-current" viewBox="0 0 20 20"><path d="M11.983 1.907a1 1 0 00-1.966 0l-1.03 5.831-5.788 1.031a1 1 0 000 1.966l5.788 1.032 1.03 5.831a1 1 0 001.966 0l1.031-5.831 5.788-1.032a1 1 0 000-1.966l-5.788-1.031-1.031-5.831z"/></svg>
                     <span><span class="font-semibold text-slate-300">Why recommended:</span> {{ item.rationale }}</span>
                 </div>
+                {% endif %}
 
                 <!-- Genre Tags -->
+                {% if item.genres %}
                 <div class="flex flex-wrap gap-1.5">
                     {% for g in item.genres %}
                     {% if loop.first and item.matched_category %}
@@ -307,9 +352,10 @@
                     {% endif %}
                     {% endfor %}
                 </div>
+                {% endif %}
 
-                <!-- Synopsis -->
-                <p class="text-xs text-slate-400 line-clamp-3 leading-relaxed">
+                <!-- Synopsis (click opens Detail Modal) -->
+                <p class="text-xs text-slate-400 line-clamp-3 leading-relaxed cursor-pointer hover:text-slate-300 transition" data-open-detail="{{ item.tmdb_id }}" data-media-type="{{ item.media_type }}" data-match-score="{{ item.match_score if item.match_score is not none else '' }}">
                     {{ item.summary or "No synopsis available." }}
                 </p>
             </div>
@@ -346,17 +392,49 @@
                     </span>
                 </a>
                 {% elif has_overseerr %}
-                <!-- Overseerr 1-Click Request Button -->
-                <button type="button" onclick="requestOverseerr('{{ item.tmdb_id }}', '{{ item.media_type }}', this)" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-lg shadow-indigo-500/20 transition">
+                {% if item.media_type in ('show', 'tv') %}
+                <!-- TV Show Split Request Button: 1-Click Season 1 default + Season Picker -->
+                <div class="relative" data-overseerr-wrap="{{ item.tmdb_id }}">
+                    <div class="flex items-stretch rounded-xl overflow-hidden shadow-lg shadow-indigo-500/20">
+                        <button type="button" id="req-btn-{{ item.tmdb_id }}" onclick="requestOverseerr('{{ item.tmdb_id }}', '{{ item.media_type }}', this)" class="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs transition">
+                            <svg class="w-4 h-4 fill-current shrink-0" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                            </svg>
+                            <span>Request Season 1 on Overseerr</span>
+                        </button>
+                        <button type="button" onclick="openSeasonPicker('{{ item.tmdb_id }}')" aria-label="Choose seasons to request" title="Choose specific seasons" class="px-2.5 bg-indigo-600 hover:bg-indigo-500 text-white border-l border-indigo-400/30 flex items-center justify-center transition">
+                            <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                    <!-- Inline Season Picker Popover -->
+                    <div id="season-picker-{{ item.tmdb_id }}" data-popover class="hidden absolute bottom-full left-0 right-0 mb-2 bg-[#0f172a] border border-slate-700 rounded-xl p-3.5 shadow-2xl shadow-black/90 z-50 space-y-2.5 text-left">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <span class="text-xs font-bold text-white">Select Seasons</span>
+                            <button type="button" onclick="togglePopover('season-picker-{{ item.tmdb_id }}')" class="text-slate-400 hover:text-white text-xs">&times;</button>
+                        </div>
+                        <div id="season-picker-body-{{ item.tmdb_id }}" class="text-xs text-slate-400 py-2 text-center">Loading seasons…</div>
+                    </div>
+                </div>
+                {% else %}
+                <!-- Overseerr 1-Click Request Button (Movie) -->
+                <button type="button" id="req-btn-{{ item.tmdb_id }}" onclick="requestOverseerr('{{ item.tmdb_id }}', '{{ item.media_type }}', this)" class="w-full inline-flex items-center justify-center space-x-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold text-xs shadow-lg shadow-indigo-500/20 transition">
                     <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
                     </svg>
-                    <span>{% if item.media_type == 'show' %}Request Season 1 on Overseerr{% else %}Request Movie on Overseerr{% endif %}</span>
+                    <span>Request Movie on Overseerr</span>
                 </button>
                 {% endif %}
+                {% endif %}
 
-                <!-- Action Buttons: IMDb, TMDb, Overseerr Web -->
+                <!-- Action Buttons: Details, IMDb, TMDb, Overseerr Web -->
                 <div class="flex items-center gap-2">
+                    <button type="button" data-open-detail="{{ item.tmdb_id }}" data-media-type="{{ item.media_type }}" data-match-score="{{ item.match_score if item.match_score is not none else '' }}" class="inline-flex items-center justify-center space-x-1 px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-xs border border-slate-700 transition" title="View trailer, cast & full details">
+                        <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                        <span>Details</span>
+                    </button>
+
                     {% if item.imdb_url %}
                     <a href="{{ item.imdb_url }}" target="_blank" rel="noopener noreferrer" class="flex-1 inline-flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-[#F5C518] hover:bg-[#e4b50e] text-gray-950 font-black text-xs shadow transition">
                         <span>IMDb</span>
@@ -393,6 +471,25 @@
                     {% set is_up = (user_votes and user_votes.get(item.tmdb_id|string) == 1) or item.is_upvoted %}
                     {% set is_down = (user_votes and user_votes.get(item.tmdb_id|string) == -1) or item.is_downvoted %}
                     <div class="inline-flex items-center space-x-1">
+                        <button type="button"
+                                id="watchlist-btn-{{ item.tmdb_id }}"
+                                data-watchlist-toggle
+                                data-in-watchlist="{{ '1' if in_wl else '0' }}"
+                                data-tmdb-id="{{ item.tmdb_id }}"
+                                data-media-type="{{ item.media_type }}"
+                                data-title="{{ item.title }}"
+                                data-year="{{ item.year or '' }}"
+                                data-poster-url="{{ item.poster_url or '' }}"
+                                data-rating="{{ item.rating or '' }}"
+                                data-genres="{{ (item.genres or [])|join(',') }}"
+                                data-summary="{{ item.summary or '' }}"
+                                class="p-1.5 rounded-lg border transition flex items-center justify-center {% if in_wl %}bg-amber-500/20 text-amber-400 border-amber-500/40{% else %}bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60{% endif %}"
+                                title="{% if in_wl %}Saved to Watchlist — click to remove{% else %}Save to Watchlist{% endif %}"
+                                aria-label="{% if in_wl %}Saved to Watchlist — click to remove{% else %}Save to Watchlist{% endif %}">
+                            <svg class="w-3.5 h-3.5 {% if in_wl %}fill-current{% else %}fill-none stroke-current stroke-2{% endif %}" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                            </svg>
+                        </button>
                         <button type="button" id="vote-up-{{ item.tmdb_id }}" data-upvoted="{{ '1' if is_up else '0' }}" onclick="toggleVote('{{ item.tmdb_id }}', '{{ item.media_type }}', '{{ item.title|replace('\'', '\\\'') }}', '{{ item.year or '' }}', 1, this)" class="p-1.5 rounded-lg border transition flex items-center justify-center {% if is_up %}bg-amber-500/20 text-amber-400 border-amber-500/40{% else %}bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border-slate-700/60{% endif %}" title="{% if is_up %}Upvoted — click to remove{% else %}Thumbs up — recommend more like this{% endif %}" aria-label="{% if is_up %}Upvoted — click to remove{% else %}Thumbs up — recommend more like this{% endif %}">
                             <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
                                 <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a2 2 0 00-.8 1.6v.8z" />

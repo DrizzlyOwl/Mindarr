@@ -139,7 +139,7 @@ def get_database_stats() -> Dict[str, Any]:
     tables = [
         "users", "user_media", "media_items", "watch_events",
         "seen_identifiers", "recommendations_cache", "job_history", "app_settings",
-        "user_dismissals", "user_votes", "system_logs",
+        "user_dismissals", "user_votes", "user_watchlist", "system_logs",
     ]
     table_counts = {}
     for t in tables:
@@ -194,7 +194,7 @@ def clear_user_data(user_key: str) -> Dict[str, int]:
     cur = conn.cursor()
     uk = str(user_key)
     deleted = {}
-    for table in ("user_media", "watch_events", "seen_identifiers", "user_dismissals", "user_votes"):
+    for table in ("user_media", "watch_events", "seen_identifiers", "user_dismissals", "user_votes", "user_watchlist"):
         cur.execute(f"DELETE FROM {table} WHERE user_key = ?", (uk,))
         deleted[table] = cur.rowcount
     # Recommendations cache is keyed by "<user_key>:..." — clear this user's entries.

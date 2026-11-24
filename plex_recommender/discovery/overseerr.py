@@ -146,19 +146,31 @@ class OverseerrClient:
                 data = resp.json()
                 media_info = data.get("mediaInfo") or {}
                 status_code = media_info.get("status", 1)
+                seasons_status: Dict[int, Dict[str, Any]] = {}
+                for s in media_info.get("seasons") or []:
+                    snum = s.get("seasonNumber")
+                    if snum is None:
+                        continue
+                    sc = s.get("status", 1)
+                    seasons_status[int(snum)] = {
+                        "status_code": sc,
+                        "status_name": STATUS_MAP.get(sc, "UNKNOWN"),
+                    }
                 return {
                     "exists": True,
                     "status_code": status_code,
                     "status_name": STATUS_MAP.get(status_code, "UNKNOWN"),
                     "overseerr_id": media_info.get("id"),
-                    "download_status": media_info.get("downloadStatus")
+                    "download_status": media_info.get("downloadStatus"),
+                    "seasons": seasons_status,
                 }
         except Exception as e:
             logger.debug(f"Overseerr get_media_info failed for {media_type} {tmdb_id}: {e}")
         return {
             "exists": False,
             "status_code": 1,
-            "status_name": "NOT_REQUESTED"
+            "status_name": "NOT_REQUESTED",
+            "seasons": {},
         }
 
     def get_request_queue(self, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
@@ -259,7 +271,15 @@ class OverseerrClient:
         try:
             resp = self._get_session().post(url, json=payload, headers=self._get_headers(), timeout=10)
             if resp.status_code in (200, 201):
-                season_str = " (Season 1)" if (endpoint_type == "tv" and payload["seasons"] == [1]) else ""
+                season_str = ""
+                if endpoint_type == "tv":
+                    if payload["seasons"] == "all":
+                        season_str = " (All Seasons)"
+                    elif isinstance(payload["seasons"], list) and len(payload["seasons"]) == 1:
+                        season_str = f" (Season {payload['seasons'][0]})"
+                    elif isinstance(payload["seasons"], list) and len(payload["seasons"]) > 1:
+                        joined = ", ".join(str(s) for s in payload["seasons"])
+                        season_str = f" (Seasons {joined})"
                 return True, f"Request submitted successfully to Overseerr{season_str}!"
             elif resp.status_code == 409:
                 return False, "This item has already been requested or is already available."
