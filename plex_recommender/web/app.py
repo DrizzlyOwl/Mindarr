@@ -3,6 +3,7 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
@@ -268,6 +269,27 @@ _ONBOARDING_GATE_ALLOWLIST = (
     "/welcome", "/logout", "/login", "/api/", "/static/",
     "/manifest.json", "/manifest.webmanifest", "/sw.js", "/offline",
 )
+
+
+@app.middleware("http")
+async def same_origin_csrf_guard(request: Request, call_next):
+    """Reject cross-origin state-changing requests when Origin or Referer is present."""
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        target_host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or request.url.netloc
+        ).split(",")[0].strip().lower()
+
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        source_header = origin if origin and origin != "null" else referer
+        if source_header:
+            parsed = urlparse(source_header)
+            source_host = (parsed.netloc or "").strip().lower()
+            if not source_host or (target_host and source_host != target_host):
+                return JSONResponse({"error": "cross_origin_forbidden"}, status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -827,6 +849,15 @@ def settings_page(request: Request):
         }
     )
 
+def _is_valid_http_url(url: str) -> bool:
+    """Return True if url is an http:// or https:// URL with a non-empty host."""
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
 @app.post("/api/settings/save")
 def save_settings(
     request: Request,
@@ -851,32 +882,37 @@ def save_settings(
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Administrator access required.")
 
+    for label, raw_url in (("PLEX_URL", plex_url), ("OVERSEERR_URL", overseerr_url), ("TAUTULLI_URL", tautulli_url)):
+        if raw_url is not None and raw_url.strip() and not _is_valid_http_url(raw_url.strip()):
+            raise HTTPException(status_code=400, detail=f"Invalid URL for {label}: must start with http:// or https://")
+
+    pending_updates = {}
     changed = []
     if plex_url and plex_url.strip() != settings.plex_url:
-        settings.save_setting("PLEX_URL", plex_url.strip())
+        pending_updates["PLEX_URL"] = plex_url.strip()
         changed.append("PLEX_URL")
     if plex_token is not None and plex_token.strip() and plex_token.strip() != (settings.plex_token or ""):
-        settings.save_setting("PLEX_TOKEN", plex_token.strip())
+        pending_updates["PLEX_TOKEN"] = plex_token.strip()
         changed.append("PLEX_TOKEN")
     if tmdb_api_key is not None and tmdb_api_key.strip() != (settings.tmdb_api_key or ""):
-        settings.save_setting("TMDB_API_KEY", tmdb_api_key.strip())
+        pending_updates["TMDB_API_KEY"] = tmdb_api_key.strip()
         changed.append("TMDB_API_KEY")
     if overseerr_url is not None and overseerr_url.strip() != settings.overseerr_url:
-        settings.save_setting("OVERSEERR_URL", overseerr_url.strip())
+        pending_updates["OVERSEERR_URL"] = overseerr_url.strip()
         changed.append("OVERSEERR_URL")
     if overseerr_api_key is not None and overseerr_api_key.strip() != (settings.overseerr_api_key or ""):
-        settings.save_setting("OVERSEERR_API_KEY", overseerr_api_key.strip())
+        pending_updates["OVERSEERR_API_KEY"] = overseerr_api_key.strip()
         changed.append("OVERSEERR_API_KEY")
     if tautulli_url is not None and tautulli_url.strip() != settings.tautulli_url:
-        settings.save_setting("TAUTULLI_URL", tautulli_url.strip())
+        pending_updates["TAUTULLI_URL"] = tautulli_url.strip()
         changed.append("TAUTULLI_URL")
     if tautulli_api_key is not None and tautulli_api_key.strip() != (settings.tautulli_api_key or ""):
-        settings.save_setting("TAUTULLI_API_KEY", tautulli_api_key.strip())
+        pending_updates["TAUTULLI_API_KEY"] = tautulli_api_key.strip()
         changed.append("TAUTULLI_API_KEY")
     if auto_sync_hours is not None and auto_sync_hours.strip().isdigit():
         val = int(auto_sync_hours.strip())
         if val > 0 and val != settings.auto_sync_hours:
-            settings.save_setting("AUTO_SYNC_HOURS", str(val))
+            pending_updates["AUTO_SYNC_HOURS"] = str(val)
             settings.auto_sync_hours = val
             changed.append(f"AUTO_SYNC_HOURS={val}h")
             if scheduler.running:
@@ -887,7 +923,7 @@ def save_settings(
     if auto_recommendations_hours is not None and auto_recommendations_hours.strip().isdigit():
         val = int(auto_recommendations_hours.strip())
         if val > 0 and val != settings.auto_recommendations_hours:
-            settings.save_setting("AUTO_RECOMMENDATIONS_HOURS", str(val))
+            pending_updates["AUTO_RECOMMENDATIONS_HOURS"] = str(val)
             settings.auto_recommendations_hours = val
             changed.append(f"AUTO_RECOMMENDATIONS_HOURS={val}h")
             if scheduler.running:
@@ -898,7 +934,7 @@ def save_settings(
     if healthcheck_interval_hours is not None and healthcheck_interval_hours.strip().isdigit():
         val = int(healthcheck_interval_hours.strip())
         if val > 0 and val != settings.healthcheck_interval_hours:
-            settings.save_setting("HEALTHCHECK_INTERVAL_HOURS", str(val))
+            pending_updates["HEALTHCHECK_INTERVAL_HOURS"] = str(val)
             settings.healthcheck_interval_hours = val
             changed.append(f"HEALTHCHECK_INTERVAL_HOURS={val}h")
             if scheduler.running:
@@ -914,9 +950,12 @@ def save_settings(
     if security_section is not None:
         https_only_val = session_https_only is not None and session_https_only.strip().lower() in ("on", "true", "1", "yes")
         if https_only_val != settings.session_https_only:
-            settings.save_setting("SESSION_HTTPS_ONLY", "true" if https_only_val else "false")
+            pending_updates["SESSION_HTTPS_ONLY"] = "true" if https_only_val else "false"
             settings.session_https_only = https_only_val
             changed.append(f"SESSION_HTTPS_ONLY={https_only_val}")
+
+    if pending_updates:
+        settings.save_settings_batch(pending_updates)
 
     integration_keys = {"TMDB_API_KEY", "OVERSEERR_URL", "OVERSEERR_API_KEY", "TAUTULLI_URL", "TAUTULLI_API_KEY"}
     if any(k in integration_keys for k in changed):

@@ -1227,7 +1227,8 @@ def test_save_settings_triggers_healthcheck_on_integration_change(monkeypatch):
 
     mock_health = MagicMock()
     monkeypatch.setattr(webapp.job_manager, "run_healthcheck", mock_health)
-    monkeypatch.setattr(webapp.settings, "save_setting", lambda k, v: None)
+    monkeypatch.setattr(webapp.settings, "tmdb_api_key", "old_key")
+    monkeypatch.setattr(webapp.settings, "save_settings_batch", lambda updates: None)
 
     with TestClient(app) as client:
         _login(client)
@@ -1239,6 +1240,38 @@ def test_save_settings_triggers_healthcheck_on_integration_change(monkeypatch):
         assert resp.status_code == 303
 
     mock_health.assert_called_once_with(trigger="manual")
+
+
+def test_save_settings_rejects_invalid_url_scheme(monkeypatch):
+    from plex_recommender.web import app as webapp
+
+    monkeypatch.setattr(webapp.settings, "save_settings_batch", lambda updates: None)
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.post(
+            "/api/settings/save",
+            data={"plex_url": "javascript:alert(1)"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 400
+
+
+def test_same_origin_csrf_guard_blocks_cross_origin_post():
+    with TestClient(app) as client:
+        _login(client)
+        bad = client.post(
+            "/api/recommendations/clear-cache",
+            headers={"Origin": "https://evil.example.com", "Host": "testserver"},
+        )
+        assert bad.status_code == 403
+        assert bad.json()["error"] == "cross_origin_forbidden"
+
+        good = client.post(
+            "/api/recommendations/clear-cache",
+            headers={"Origin": "http://testserver", "Host": "testserver"},
+        )
+        assert good.status_code == 200
 
 
 

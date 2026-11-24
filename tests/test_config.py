@@ -125,3 +125,33 @@ def test_is_locked_reflects_env_managed_keys(monkeypatch):
     assert s.is_locked("PLEX_TOKEN") is True
     assert s.is_locked("TMDB_API_KEY") is False
     assert is_env_managed("PLEX_TOKEN") is True
+
+
+def test_default_urls_are_empty_not_hardcoded_lan_ip(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    monkeypatch.delenv("PLEX_URL", raising=False)
+    monkeypatch.delenv("OVERSEERR_URL", raising=False)
+    s = Settings()
+    assert s.plex_url == ""
+    assert s.overseerr_url == ""
+
+
+def test_save_settings_batch_sanitizes_newlines_and_rejects_invalid_keys(tmp_path, monkeypatch):
+    import plex_recommender.config as config_module
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(config_module, "ENV_FILE", env_file)
+    monkeypatch.delenv("TMDB_API_KEY", raising=False)
+    monkeypatch.delenv("PLEX_URL", raising=False)
+
+    s = Settings()
+    s.save_settings_batch({
+        "TMDB_API_KEY": "abc\nINJECTED_KEY=evil\r\n",
+        "PLEX_URL": "http://plex.local:32400",
+    })
+    content = env_file.read_text()
+    assert "\nINJECTED_KEY=" not in content
+    assert "TMDB_API_KEY=abcINJECTED_KEY=evil\n" in content
+    assert "PLEX_URL=http://plex.local:32400\n" in content
+
+    with pytest.raises(ValueError):
+        s.save_setting("BAD KEY=1", "val")

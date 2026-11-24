@@ -73,6 +73,8 @@ def verify_plex_connection(baseurl: Optional[str] = None, token: Optional[str] =
     """
     url = (baseurl or settings.plex_url).rstrip("/")
     tok = token or settings.plex_token
+    if not url:
+        return False, "No Plex URL configured."
     if not tok:
         return False, "No Plex token provided."
 
@@ -125,7 +127,7 @@ def get_server_machine_id(baseurl: Optional[str] = None, token: Optional[str] = 
     """Return the machineIdentifier of the configured Plex server."""
     url = (baseurl or settings.plex_url).rstrip("/")
     tok = token or settings.plex_token
-    if not tok:
+    if not url or not tok:
         return None
     session = make_session(url)
     try:
