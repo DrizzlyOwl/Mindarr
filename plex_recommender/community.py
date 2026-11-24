@@ -2,6 +2,7 @@ import logging
 import json
 import time
 import hashlib
+import threading
 from typing import Optional, Dict, Any, List, Set, Tuple
 from datetime import datetime, timezone
 
@@ -14,9 +15,9 @@ from plex_recommender.db.users import get_all_users
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory cache with 10-minute TTL to keep page renders ultra-fast
-_CACHE: Dict[str, Any] = {}
-_CACHE_TIMESTAMP: float = 0
+# Simple in-memory cache with 10-minute TTL per user_key to keep page renders ultra-fast
+_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_CACHE_LOCK = threading.Lock()
 CACHE_TTL_SECONDS = 600
 
 
@@ -24,13 +25,17 @@ class CommunityService:
     """Provides server-wide viewing trends, peer comparisons, and community discovery."""
 
     def get_community_data(self, current_user: Dict[str, Any], force_refresh: bool = False) -> Dict[str, Any]:
-        global _CACHE, _CACHE_TIMESTAMP
         user_key = str(current_user.get("user_key", ""))
         cache_key = f"community_{user_key}"
 
         now = time.time()
-        if not force_refresh and (now - _CACHE_TIMESTAMP < CACHE_TTL_SECONDS) and cache_key in _CACHE:
-            return _CACHE[cache_key]
+        if not force_refresh:
+            with _CACHE_LOCK:
+                cached_entry = _CACHE.get(cache_key)
+                if cached_entry is not None:
+                    cached_ts, cached_data = cached_entry
+                    if now - cached_ts < CACHE_TTL_SECONDS:
+                        return cached_data
 
         # Gather local user data for cross-referencing
         seen_index = get_user_seen_index(user_key)
@@ -161,8 +166,8 @@ class CommunityService:
         else:
             data = self._build_from_db(current_user, seen_index, user_item_ids, local_user_stats, media_meta, local_user_metrics)
 
-        _CACHE[cache_key] = data
-        _CACHE_TIMESTAMP = now
+        with _CACHE_LOCK:
+            _CACHE[cache_key] = (now, data)
         return data
 
     def _build_from_tautulli(

@@ -47,11 +47,9 @@ def calculate_time_weight(viewed_at: datetime, reference_date: datetime) -> floa
     return 0.6 + (1.4 * decay)
 
 class TasteAnalyzer:
-    def __init__(self):
-        self.now = datetime.now()
-
     def analyze(self, user_key: str) -> Dict[str, Any]:
         """Run full taste and trend analysis over a user's watched items."""
+        now = datetime.now()
         items = get_user_media_items(user_key)
         stats = get_stats(user_key)
 
@@ -75,7 +73,7 @@ class TasteAnalyzer:
 
         movies_count = 0
         shows_count = 0
-        six_months_ago = self.now - timedelta(days=180)
+        six_months_ago = now - timedelta(days=180)
 
         for item in items:
             mtype = item.get("media_type")
@@ -104,7 +102,7 @@ class TasteAnalyzer:
                     rating_mult = 1.1
 
             item_weight = rewatch_mult * rating_mult
-            decayed_weight = item_weight * calculate_time_weight(last_viewed, self.now)
+            decayed_weight = item_weight * calculate_time_weight(last_viewed, now)
 
             # 1. Genres
             for g in item.get("genres", []):
@@ -140,7 +138,7 @@ class TasteAnalyzer:
 
             # 4. Decades
             year = item.get("year")
-            if year and 1920 <= year <= self.now.year + 1:
+            if year and 1920 <= year <= now.year + 1:
                 decade = (year // 10) * 10
                 decade_label = f"{decade}s"
                 decade_counts[decade_label] += 1
@@ -218,7 +216,7 @@ class TasteAnalyzer:
             "top_shows": top_shows,
             "decades": sorted_decades,
             "summary": summary,
-            "generated_at": self.now.isoformat()
+            "generated_at": now.isoformat()
         }
 
     def _build_summary(

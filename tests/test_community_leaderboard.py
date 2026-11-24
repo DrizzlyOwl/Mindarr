@@ -483,6 +483,38 @@ def test_web_community_leaderboard_rendering():
             assert "Faker Pseudonyms Active" in text
 
 
+def test_community_cache_ttl_is_per_user(monkeypatch):
+    import plex_recommender.community as comm_mod
+
+    comm_mod._CACHE.clear()
+    service = CommunityService()
+    calls = []
+
+    def fake_build_db(self, current_user, *args, **kwargs):
+        calls.append(current_user["user_key"])
+        return {"user_key": current_user["user_key"], "call": len(calls)}
+
+    monkeypatch.setattr(CommunityService, "_build_from_db", fake_build_db)
+    monkeypatch.setattr(comm_mod.tautulli, "is_configured", lambda: False)
+
+    t = [1000.0]
+    monkeypatch.setattr(comm_mod.time, "time", lambda: t[0])
+
+    u1 = {"user_key": "u1", "username": "alice"}
+    u2 = {"user_key": "u2", "username": "bob"}
+
+    # u1 populates cache at t=1000
+    assert service.get_community_data(u1)["call"] == 1
+    # u2 populates cache at t=1500 (should NOT refresh u1's TTL)
+    t[0] = 1500.0
+    assert service.get_community_data(u2)["call"] == 2
+    # At t=1700, u1 is expired (700s > 600s) while u2 is still fresh (200s < 600s)
+    t[0] = 1700.0
+    assert service.get_community_data(u1)["call"] == 3
+    assert service.get_community_data(u2)["call"] == 2
+    comm_mod._CACHE.clear()
+
+
 def test_admin_real_username_tooltip_visibility():
     service = CommunityService()
     admin_user = {

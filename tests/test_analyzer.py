@@ -194,3 +194,29 @@ def test_high_user_rating_boosts_but_low_does_not_penalize():
     assert scores["Fantasy"] > scores["Western"]
     # ...but the low-rated genre is still present (never penalized to negative).
     assert scores["Western"] > 0
+
+
+def test_analyzer_uses_current_time_per_analyze_call(monkeypatch):
+    import plex_recommender.analyzer as analyzer_mod
+
+    class FakeDatetime(datetime):
+        current = datetime(2025, 1, 1, 12, 0, 0)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(analyzer_mod, "datetime", FakeDatetime)
+    ta = TasteAnalyzer()
+    upsert_user_media(USER, {
+        "item_id": "t1", "media_type": "movie", "title": "Now Movie",
+        "year": 2024, "genres": ["Drama"], "view_count": 1,
+        "last_viewed_at": "2025-01-01T10:00:00",
+    })
+
+    first = ta.analyze(USER)
+    assert first["generated_at"].startswith("2025-01-01")
+
+    FakeDatetime.current = datetime(2026, 6, 15, 12, 0, 0)
+    second = ta.analyze(USER)
+    assert second["generated_at"].startswith("2026-06-15")

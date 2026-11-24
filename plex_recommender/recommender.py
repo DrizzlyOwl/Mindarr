@@ -7,7 +7,7 @@ from plex_recommender.db._util import normalize_title
 from plex_recommender.db.recommendations import get_cached_recommendations, set_cached_recommendations
 from plex_recommender.db.media import get_library_availability_index
 from plex_recommender.db.recommendations import get_setting
-from plex_recommender.db.engagement import get_user_votes, get_user_vote_items
+from plex_recommender.db.engagement import get_user_vote_items
 from plex_recommender.discovery.tmdb import (
     TMDbClient,
     candidate_matches_genre,
@@ -657,7 +657,6 @@ class ContentRecommender:
         availability_index = get_library_availability_index()
         machine_id = settings.plex_machine_id
 
-        user_votes = get_user_votes(user_key)
         upvoted_items = get_user_vote_items(user_key, vote=1)
         upvoted_ids = {str(uv["tmdb_id"]) for uv in upvoted_items}
         upvoted_titles = {str(uv.get("title")) for uv in upvoted_items if uv.get("title")}

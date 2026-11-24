@@ -1163,6 +1163,47 @@ def test_api_recommendations_exhaustion_rendering(monkeypatch):
         assert "Reset Filters" in data["html"]
 
 
+def test_api_run_job_dispatches_poster_cleanup_and_healthcheck(monkeypatch):
+    from unittest.mock import MagicMock
+    from plex_recommender.web import app as webapp
+
+    mock_poster = MagicMock()
+    mock_health = MagicMock()
+    monkeypatch.setattr(webapp.job_manager, "run_poster_cleanup", mock_poster)
+    monkeypatch.setattr(webapp.job_manager, "run_healthcheck", mock_health)
+
+    with TestClient(app) as client:
+        _login(client)
+        r1 = client.post("/api/jobs/run", data={"job_type": "poster_cleanup"})
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "started"
+
+        r2 = client.post("/api/jobs/run", data={"job_type": "healthcheck"})
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "started"
+
+    mock_poster.assert_called_once_with(trigger="manual")
+    mock_health.assert_called_once_with(trigger="manual")
+
+
+def test_api_clear_recommendations_cache_is_scoped_to_current_user():
+    from plex_recommender.db.recommendations import (
+        set_cached_recommendations, get_cached_recommendations,
+    )
+
+    set_cached_recommendations(f"{USER}:all::en:7.0:0:0", None, {"all_recommendations": [{"tmdb_id": "1"}]})
+    set_cached_recommendations("other_user:all::en:7.0:0:0", None, {"all_recommendations": [{"tmdb_id": "2"}]})
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.post("/api/recommendations/clear-cache")
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    assert get_cached_recommendations(f"{USER}:all::en:7.0:0:0", None) is None
+    assert get_cached_recommendations("other_user:all::en:7.0:0:0", None) is not None
+
+
 
 
 

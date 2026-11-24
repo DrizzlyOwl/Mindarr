@@ -492,7 +492,7 @@ def recommendations_page(
     if not tmdb.is_configured():
         error_msg = "TMDb API Key is not configured. Please ask your administrator to add it in Settings."
     elif not profile.get("has_data"):
-        error_msg = "No watch history available for your account. Recommendations require Tautulli history."
+        error_msg = "No watch history available for your account. Please sync your Plex watch history first."
 
     return templates.TemplateResponse(
         request=request,
@@ -553,7 +553,7 @@ def api_recommendations(
     if not tmdb.is_configured():
         error_msg = "TMDb API Key is not configured. Please ask your administrator to add it in Settings."
     elif not profile.get("has_data"):
-        error_msg = "No watch history available for your account. Recommendations require Tautulli history."
+        error_msg = "No watch history available for your account. Please sync your Plex watch history first."
     else:
         try:
             results = recommender.get_recommendations(
@@ -613,8 +613,8 @@ def api_clear_recommendations_cache(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    clear_recommendations_cache()
-    logger.info("User '%s' cleared recommendations cache.", user.get("username") or user.get("user_key"))
+    clear_user_recommendations_cache(user["user_key"])
+    logger.info("User '%s' cleared their recommendations cache.", user.get("username") or user.get("user_key"))
     return {"success": True, "message": "Recommendations cache cleared"}
 
 
@@ -963,6 +963,10 @@ def api_run_job(
         background_tasks.add_task(job_manager.run_recommendations, trigger="manual", user_key=user_key)
     elif job_type == "truncate_logs":
         background_tasks.add_task(job_manager.run_truncate_logs, trigger="manual", retention_days=7)
+    elif job_type == "poster_cleanup":
+        background_tasks.add_task(job_manager.run_poster_cleanup, trigger="manual")
+    elif job_type == "healthcheck":
+        background_tasks.add_task(job_manager.run_healthcheck, trigger="manual")
 
     return JSONResponse({"status": "started", "job_type": job_type})
 
