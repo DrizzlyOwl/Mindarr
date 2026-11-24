@@ -24,9 +24,21 @@ CACHE_TTL_SECONDS = 600
 class CommunityService:
     """Provides server-wide viewing trends, peer comparisons, and community discovery."""
 
-    def get_community_data(self, current_user: Dict[str, Any], force_refresh: bool = False) -> Dict[str, Any]:
+    @staticmethod
+    def clear_cache() -> None:
+        """Clear cached community data across all users."""
+        with _CACHE_LOCK:
+            _CACHE.clear()
+
+    def get_community_data(
+        self,
+        current_user: Dict[str, Any],
+        force_refresh: bool = False,
+        reveal_names: bool = False,
+    ) -> Dict[str, Any]:
         user_key = str(current_user.get("user_key", ""))
-        cache_key = f"community_{user_key}"
+        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
+        cache_key = f"community_{user_key}_{int(can_reveal)}"
 
         now = time.time()
         if not force_refresh:
@@ -162,9 +174,15 @@ class CommunityService:
 
         # Check if Tautulli is configured and can provide server-wide history
         if tautulli.is_configured():
-            data = self._build_from_tautulli(current_user, seen_index, user_item_ids, local_user_stats, media_meta, local_user_counts, local_user_metrics)
+            data = self._build_from_tautulli(
+                current_user, seen_index, user_item_ids, local_user_stats, media_meta,
+                local_user_counts, local_user_metrics, reveal_names=can_reveal,
+            )
         else:
-            data = self._build_from_db(current_user, seen_index, user_item_ids, local_user_stats, media_meta, local_user_metrics)
+            data = self._build_from_db(
+                current_user, seen_index, user_item_ids, local_user_stats, media_meta,
+                local_user_metrics, reveal_names=can_reveal,
+            )
 
         with _CACHE_LOCK:
             _CACHE[cache_key] = (now, data)
@@ -179,6 +197,7 @@ class CommunityService:
         media_meta: Dict[str, Dict[str, Any]],
         local_user_counts: Optional[Dict[str, Dict[str, int]]] = None,
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
+        reveal_names: bool = False,
     ) -> Dict[str, Any]:
         """Aggregate community data using Tautulli's server-wide statistics and history."""
         local_user_counts = local_user_counts or {}
@@ -416,10 +435,12 @@ class CommunityService:
                 }
 
         candidate_users = list(candidate_map.values())
+        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
             overlap_pct=overlap_pct,
+            reveal_names=can_reveal,
         )
 
         is_single_user = total_community_members <= 1
@@ -428,6 +449,7 @@ class CommunityService:
             "is_single_user": is_single_user,
             "total_community_members": total_community_members,
             "source": "tautulli",
+            "leaderboard_deanonymized": can_reveal,
             "benchmarks": {
                 "user_plays": user_events,
                 "user_movie_pct": user_movie_pct,
@@ -454,6 +476,7 @@ class CommunityService:
         local_user_stats: Dict[str, Any],
         media_meta: Dict[str, Dict[str, Any]],
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
+        reveal_names: bool = False,
     ) -> Dict[str, Any]:
         """Aggregate community data purely from Mindarr's local database (fallback/offline mode)."""
         all_users = get_all_users()
@@ -593,16 +616,19 @@ class CommunityService:
                 "is_registered": True,
             })
 
+        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
             overlap_pct=overlap_pct,
+            reveal_names=can_reveal,
         )
 
         return {
             "is_single_user": total_community_members <= 1,
             "total_community_members": total_community_members,
             "source": "db",
+            "leaderboard_deanonymized": can_reveal,
             "benchmarks": {
                 "user_plays": user_events,
                 "user_movie_pct": user_movie_pct,
@@ -844,6 +870,7 @@ class CommunityService:
         current_user: Dict[str, Any],
         candidate_users: List[Dict[str, Any]],
         overlap_pct: int = 0,
+        reveal_names: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
         """Construct server-wide leaderboard, rank ordering, badges, and user head-to-head comparison."""
         from collections import Counter
@@ -874,23 +901,31 @@ class CommunityService:
             })
 
         is_admin = bool(current_user.get("is_admin"))
+        can_reveal = is_admin and bool(reveal_names)
 
         for c in candidate_users:
             if not c.get("is_me"):
                 raw_u = c.get("username")
                 raw_d = c.get("display_name")
-                anon_name = self._generate_anonymized_name(c.get("user_key") or raw_u or "user")
-                c["display_name"] = anon_name
-                c["username"] = anon_name
-                c["thumb"] = None  # Privacy: mask avatar photos of other users
-                c["is_anonymized"] = True
-                # Expose real username only if requesting viewer is server admin
-                if is_admin:
+                if can_reveal:
+                    c["display_name"] = raw_d or raw_u
+                    c["username"] = raw_u or raw_d
+                    c["is_anonymized"] = False
                     c["real_username"] = raw_u or raw_d
                     c["real_display_name"] = raw_d or raw_u
                 else:
-                    c["real_username"] = None
-                    c["real_display_name"] = None
+                    anon_name = self._generate_anonymized_name(c.get("user_key") or raw_u or "user")
+                    c["display_name"] = anon_name
+                    c["username"] = anon_name
+                    c["thumb"] = None  # Privacy: mask avatar photos of other users
+                    c["is_anonymized"] = True
+                    # Expose real username only if requesting viewer is server admin
+                    if is_admin:
+                        c["real_username"] = raw_u or raw_d
+                        c["real_display_name"] = raw_d or raw_u
+                    else:
+                        c["real_username"] = None
+                        c["real_display_name"] = None
             else:
                 c["is_anonymized"] = False
                 c["real_username"] = c.get("username")

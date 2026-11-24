@@ -73,6 +73,7 @@ def test_non_admin_cannot_access_admin_api_or_pages():
         ("GET", "/api/plex/test", None),
         ("GET", "/api/overseerr/test", None),
         ("GET", "/api/tautulli/test", None),
+        ("POST", "/api/community/deanonymize", None),
     ]
     admin_pages = [
         "/settings",

@@ -625,3 +625,62 @@ def test_admin_real_username_tooltip_visibility():
             # Admin sees tooltip with real username
             assert 'title="Real username: @secret_real_name_99"' in resp.text
             assert "Admin View:" in resp.text
+
+
+def test_admin_can_deanonymize_leaderboard_while_non_admin_stays_anonymized():
+    from plex_recommender.db.media import upsert_media_item
+    from plex_recommender.db.users import create_or_update_user, mark_onboarded
+    from plex_recommender.db.watch import upsert_user_media
+    import base64, json, itsdangerous
+
+    community_service.clear_cache()
+    create_or_update_user({
+        "user_key": "adm_1", "username": "admin_owner", "title": "Admin Owner",
+        "email": "adm@example.com", "is_admin": True,
+    })
+    mark_onboarded("adm_1")
+    create_or_update_user({
+        "user_key": "peer_2", "username": "secret_plex_peer", "title": "Real Peer Name",
+        "email": "peer@example.com", "thumb": "https://img.example/peer.jpg", "is_admin": False,
+    })
+    mark_onboarded("peer_2")
+
+    upsert_media_item({"item_id": "m_lb", "media_type": "movie", "title": "Hit Film", "year": 2024, "genres": ["Action"]})
+    upsert_user_media("peer_2", {"item_id": "m_lb", "view_count": 25})
+    upsert_user_media("adm_1", {"item_id": "m_lb", "view_count": 5})
+
+    def _cookie(uk):
+        signer = itsdangerous.TimestampSigner(settings.session_secret)
+        return signer.sign(base64.b64encode(json.dumps({"user_key": uk}).encode())).decode()
+
+    with patch("plex_recommender.discovery.tautulli.tautulli.is_configured", return_value=False):
+        with TestClient(app) as client:
+            # Admin default view is anonymized
+            client.cookies.set("session", _cookie("adm_1"))
+            r_anon = client.get("/community/")
+            assert r_anon.status_code == 200
+            assert "Reveal Plex Users" in r_anon.text
+            assert "Faker Pseudonyms Active" in r_anon.text
+
+            # Admin toggles deanonymization ON
+            r_toggle = client.post("/api/community/deanonymize", data={"enabled": "true"}, follow_redirects=False)
+            assert r_toggle.status_code == 303
+            assert r_toggle.headers["location"] == "/community/"
+
+            r_real = client.get("/community/")
+            assert r_real.status_code == 200
+            assert "Real Peer Name" in r_real.text
+            assert "Anonymize Users" in r_real.text
+            assert "Admin View: Real Plex Names Active" in r_real.text
+            assert "https://img.example/peer.jpg" in r_real.text
+
+            # Non-admin user NEVER sees real names/avatars even when admin toggle is ON
+            client.cookies.set("session", _cookie("peer_2"))
+            r_peer = client.get("/community/")
+            assert r_peer.status_code == 200
+            assert "Admin Owner" not in r_peer.text
+            assert "admin_owner" not in r_peer.text
+            assert "Reveal Plex Users" not in r_peer.text
+            assert "Faker Pseudonyms Active" in r_peer.text
+
+    community_service.clear_cache()

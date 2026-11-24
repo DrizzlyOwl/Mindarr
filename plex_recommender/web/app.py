@@ -495,13 +495,15 @@ def community_page(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    community_data = community_service.get_community_data(user)
+    reveal_names = bool(user.get("is_admin")) and (get_setting("community_deanonymize") == "true")
+    community_data = community_service.get_community_data(user, reveal_names=reveal_names)
 
     return templates.TemplateResponse(
         request=request,
         name="community.html",
         context={
             "community": community_data,
+            "leaderboard_deanonymized": reveal_names,
             "settings": settings,
             "sync_state": sync_state,
             "current_user": user,
@@ -511,6 +513,30 @@ def community_page(request: Request):
             "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
+
+
+@app.post("/api/community/deanonymize")
+def api_toggle_community_deanonymize(request: Request, enabled: Optional[str] = Form(None)):
+    """Admin-only toggle to reveal or mask real Plex usernames on the leaderboard."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    if enabled is None:
+        new_val = get_setting("community_deanonymize") != "true"
+    else:
+        new_val = enabled.strip().lower() in ("1", "true", "yes", "on")
+
+    set_setting("community_deanonymize", "true" if new_val else "false")
+    community_service.clear_cache()
+    logger.info(
+        "Admin '%s' %s community leaderboard deanonymization.",
+        user.get("username") or user.get("user_key"),
+        "enabled" if new_val else "disabled",
+    )
+    return RedirectResponse(url="/community/", status_code=303)
 
 @app.get("/sources", response_class=HTMLResponse)
 @app.get("/sources/", response_class=HTMLResponse)
