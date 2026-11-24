@@ -4,7 +4,7 @@ from typing import Optional, Callable, Dict, Any, List
 from plexapi.server import PlexServer
 from plex_recommender.config import settings
 from plex_recommender.http_client import make_session
-from plex_recommender.db import init_db
+from plex_recommender.db import init_db, get_connection
 from plex_recommender.db.media import upsert_media_item, upsert_media_items_batch, get_existing_keywords_map
 from plex_recommender.db.watch import upsert_user_media, record_watch_event, get_stats
 from plex_recommender.db.recommendations import set_setting, clear_recommendations_cache
@@ -377,101 +377,107 @@ def sync_plex_user_history(
     # history pull, since Plex history is per-playback-event, not per-item.
     target_tally: Dict[str, Dict[str, Any]] = {}
 
-    for h in history_entries:
-        rating_key = str(getattr(h, "ratingKey", "") or "")
-        if not rating_key:
-            continue
-        media_type = getattr(h, "type", "movie")
-        raw_title = getattr(h, "title", "") or ""
-        grandparent_title = getattr(h, "grandparentTitle", "") or ""
-        if media_type == "episode" and grandparent_title:
-            title = f"{grandparent_title} - {raw_title}"
-        else:
-            title = raw_title
-        viewed_at = _viewed_at_iso(getattr(h, "viewedAt", None))
+    conn = get_connection()
+    try:
+        for h in history_entries:
+            rating_key = str(getattr(h, "ratingKey", "") or "")
+            if not rating_key:
+                continue
+            media_type = getattr(h, "type", "movie")
+            raw_title = getattr(h, "title", "") or ""
+            grandparent_title = getattr(h, "grandparentTitle", "") or ""
+            if media_type == "episode" and grandparent_title:
+                title = f"{grandparent_title} - {raw_title}"
+            else:
+                title = raw_title
+            viewed_at = _viewed_at_iso(getattr(h, "viewedAt", None))
 
-        record_watch_event({
-            "user_key": user_key,
-            "item_id": rating_key,
-            "title": title,
-            "media_type": media_type,
-            "viewed_at": viewed_at,
-            "account_id": user_key,
-            "duration_watched": getattr(h, "duration", 0) or 0,
-            "source": "plex",
-        })
+            record_watch_event({
+                "user_key": user_key,
+                "item_id": rating_key,
+                "title": title,
+                "media_type": media_type,
+                "viewed_at": viewed_at,
+                "account_id": user_key,
+                "duration_watched": getattr(h, "duration", 0) or 0,
+                "source": "plex",
+            }, conn=conn)
 
-        # For episodes, attribute the watch to the parent SHOW (which carries
-        # genres/creators). Roll up to the grandparent so the taste profile has
-        # genre data instead of empty per-episode metadata.
-        target_key = rating_key
-        target_type = media_type
-        if media_type == "episode":
-            gp = getattr(h, "grandparentRatingKey", None)
-            if gp:
-                target_key = str(gp)
-                target_type = "show"
+            # For episodes, attribute the watch to the parent SHOW (which carries
+            # genres/creators). Roll up to the grandparent so the taste profile has
+            # genre data instead of empty per-episode metadata.
+            target_key = rating_key
+            target_type = media_type
+            if media_type == "episode":
+                gp = getattr(h, "grandparentRatingKey", None)
+                if gp:
+                    target_key = str(gp)
+                    target_type = "show"
 
-        info = metadata_cache.get(target_key)
-        if info is None:
-            info = {
-                "imdb_id": None, "tmdb_id": None, "tvdb_id": None,
-                "year": None, "title": None,
-                "genres": [], "directors": [], "actors": [],
-                "user_rating": None,
-            }
-            try:
-                item = plex.fetchItem(int(target_key))
-                guids = parse_guids(item)
-                info.update({
-                    "imdb_id": guids["imdb_id"],
-                    "tmdb_id": guids["tmdb_id"],
-                    "tvdb_id": guids["tvdb_id"],
-                    "year": getattr(item, "year", None),
-                    "title": getattr(item, "title", None),
-                    "genres": [g.tag for g in getattr(item, "genres", []) or []],
-                    "directors": [d.tag for d in getattr(item, "directors", []) or []],
-                    "actors": [r.tag for r in (getattr(item, "roles", []) or [])[:15]],
-                    "user_rating": getattr(item, "userRating", None),
-                })
-            except Exception as e:
-                logger.debug("Could not fetch Plex metadata for %s: %s", target_key, e)
-            metadata_cache[target_key] = info
+            info = metadata_cache.get(target_key)
+            if info is None:
+                info = {
+                    "imdb_id": None, "tmdb_id": None, "tvdb_id": None,
+                    "year": None, "title": None,
+                    "genres": [], "directors": [], "actors": [],
+                    "user_rating": None,
+                }
+                try:
+                    item = plex.fetchItem(int(target_key))
+                    guids = parse_guids(item)
+                    info.update({
+                        "imdb_id": guids["imdb_id"],
+                        "tmdb_id": guids["tmdb_id"],
+                        "tvdb_id": guids["tvdb_id"],
+                        "year": getattr(item, "year", None),
+                        "title": getattr(item, "title", None),
+                        "genres": [g.tag for g in getattr(item, "genres", []) or []],
+                        "directors": [d.tag for d in getattr(item, "directors", []) or []],
+                        "actors": [r.tag for r in (getattr(item, "roles", []) or [])[:15]],
+                        "user_rating": getattr(item, "userRating", None),
+                    })
+                except Exception as e:
+                    logger.debug("Could not fetch Plex metadata for %s: %s", target_key, e)
+                metadata_cache[target_key] = info
 
-        tally = target_tally.get(target_key)
-        if tally is None:
-            tally = {
-                "media_type": target_type,
-                "title": info.get("title") or title,
-                "info": info,
-                "view_count": 0,
-                "last_viewed_at": viewed_at,
-            }
-            target_tally[target_key] = tally
-        tally["view_count"] += 1
-        # Track the most recent view across all events for this target.
-        if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
-            tally["last_viewed_at"] = viewed_at
+            tally = target_tally.get(target_key)
+            if tally is None:
+                tally = {
+                    "media_type": target_type,
+                    "title": info.get("title") or title,
+                    "info": info,
+                    "view_count": 0,
+                    "last_viewed_at": viewed_at,
+                }
+                target_tally[target_key] = tally
+            tally["view_count"] += 1
+            # Track the most recent view across all events for this target.
+            if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
+                tally["last_viewed_at"] = viewed_at
 
-        count += 1
+            count += 1
 
-    for target_key, tally in target_tally.items():
-        info = tally["info"]
-        upsert_user_media(user_key, {
-            "item_id": target_key,
-            "media_type": tally["media_type"],
-            "title": tally["title"],
-            "year": info.get("year"),
-            "genres": info.get("genres", []),
-            "directors": info.get("directors", []),
-            "actors": info.get("actors", []),
-            "imdb_id": info.get("imdb_id"),
-            "tmdb_id": info.get("tmdb_id"),
-            "tvdb_id": info.get("tvdb_id"),
-            "view_count": tally["view_count"],
-            "last_viewed_at": tally["last_viewed_at"],
-            "user_rating": info.get("user_rating"),
-        })
+        for target_key, tally in target_tally.items():
+            info = tally["info"]
+            upsert_user_media(user_key, {
+                "item_id": target_key,
+                "media_type": tally["media_type"],
+                "title": tally["title"],
+                "year": info.get("year"),
+                "genres": info.get("genres", []),
+                "directors": info.get("directors", []),
+                "actors": info.get("actors", []),
+                "imdb_id": info.get("imdb_id"),
+                "tmdb_id": info.get("tmdb_id"),
+                "tvdb_id": info.get("tvdb_id"),
+                "view_count": tally["view_count"],
+                "last_viewed_at": tally["last_viewed_at"],
+                "user_rating": info.get("user_rating"),
+            }, conn=conn)
+
+        conn.commit()
+    finally:
+        conn.close()
 
     logger.info("Recorded %s Plex history events for user %s.", count, user_key)
     return count
@@ -530,75 +536,81 @@ def sync_tautulli_user_history(
     # history pull, since Tautulli history is per-playback-event, not per-item.
     target_tally: Dict[str, Dict[str, Any]] = {}
 
-    for row in history:
-        media_type = row.get("media_type", "movie")
-        viewed_at = _epoch_to_iso(row.get("date") or row.get("started"))
-        episode_key = str(row.get("rating_key") or "")
+    conn = get_connection()
+    try:
+        for row in history:
+            media_type = row.get("media_type", "movie")
+            viewed_at = _epoch_to_iso(row.get("date") or row.get("started"))
+            episode_key = str(row.get("rating_key") or "")
 
-        # Record the raw play event against the actual item watched.
-        if episode_key:
-            record_watch_event({
-                "user_key": user_key,
-                "item_id": episode_key,
-                "title": row.get("full_title") or row.get("title") or "",
-                "media_type": media_type,
-                "viewed_at": viewed_at,
-                "account_id": tautulli_user_id,
-                "duration_watched": row.get("duration", 0) or 0,
-                "source": "tautulli",
-            })
+            # Record the raw play event against the actual item watched.
+            if episode_key:
+                record_watch_event({
+                    "user_key": user_key,
+                    "item_id": episode_key,
+                    "title": row.get("full_title") or row.get("title") or "",
+                    "media_type": media_type,
+                    "viewed_at": viewed_at,
+                    "account_id": tautulli_user_id,
+                    "duration_watched": row.get("duration", 0) or 0,
+                    "source": "tautulli",
+                }, conn=conn)
 
-        # For episodes, attribute the watch to the parent SHOW (genres/creators
-        # live at show level). Roll up to the grandparent rating key.
-        if media_type == "episode" and row.get("grandparent_rating_key"):
-            target_key = str(row.get("grandparent_rating_key"))
-            target_type = "show"
-            fallback_title = row.get("grandparent_title") or ""
-        else:
-            target_key = episode_key or str(row.get("grandparent_rating_key") or "")
-            target_type = media_type
-            fallback_title = row.get("full_title") or row.get("title") or ""
+            # For episodes, attribute the watch to the parent SHOW (genres/creators
+            # live at show level). Roll up to the grandparent rating key.
+            if media_type == "episode" and row.get("grandparent_rating_key"):
+                target_key = str(row.get("grandparent_rating_key"))
+                target_type = "show"
+                fallback_title = row.get("grandparent_title") or ""
+            else:
+                target_key = episode_key or str(row.get("grandparent_rating_key") or "")
+                target_type = media_type
+                fallback_title = row.get("full_title") or row.get("title") or ""
 
-        if not target_key:
-            continue
+            if not target_key:
+                continue
 
-        if target_key not in metadata_cache:
-            metadata_cache[target_key] = tautulli.get_metadata(target_key)
-        meta = metadata_cache[target_key]
+            if target_key not in metadata_cache:
+                metadata_cache[target_key] = tautulli.get_metadata(target_key)
+            meta = metadata_cache[target_key]
 
-        tally = target_tally.get(target_key)
-        if tally is None:
-            tally = {
-                "media_type": target_type,
-                "title": meta.get("title") or fallback_title,
-                "year": meta.get("year") or row.get("year"),
-                "meta": meta,
-                "view_count": 0,
-                "last_viewed_at": viewed_at,
-            }
-            target_tally[target_key] = tally
-        tally["view_count"] += 1
-        if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
-            tally["last_viewed_at"] = viewed_at
+            tally = target_tally.get(target_key)
+            if tally is None:
+                tally = {
+                    "media_type": target_type,
+                    "title": meta.get("title") or fallback_title,
+                    "year": meta.get("year") or row.get("year"),
+                    "meta": meta,
+                    "view_count": 0,
+                    "last_viewed_at": viewed_at,
+                }
+                target_tally[target_key] = tally
+            tally["view_count"] += 1
+            if viewed_at and (not tally["last_viewed_at"] or viewed_at > tally["last_viewed_at"]):
+                tally["last_viewed_at"] = viewed_at
 
-        count += 1
+            count += 1
 
-    for target_key, tally in target_tally.items():
-        meta = tally["meta"]
-        upsert_user_media(user_key, {
-            "item_id": target_key,
-            "media_type": tally["media_type"],
-            "title": tally["title"],
-            "year": tally["year"],
-            "genres": meta.get("genres", []),
-            "directors": meta.get("directors", []),
-            "actors": meta.get("actors", []),
-            "imdb_id": meta.get("imdb_id"),
-            "tmdb_id": meta.get("tmdb_id"),
-            "tvdb_id": meta.get("tvdb_id"),
-            "view_count": tally["view_count"],
-            "last_viewed_at": tally["last_viewed_at"],
-        })
+        for target_key, tally in target_tally.items():
+            meta = tally["meta"]
+            upsert_user_media(user_key, {
+                "item_id": target_key,
+                "media_type": tally["media_type"],
+                "title": tally["title"],
+                "year": tally["year"],
+                "genres": meta.get("genres", []),
+                "directors": meta.get("directors", []),
+                "actors": meta.get("actors", []),
+                "imdb_id": meta.get("imdb_id"),
+                "tmdb_id": meta.get("tmdb_id"),
+                "tvdb_id": meta.get("tvdb_id"),
+                "view_count": tally["view_count"],
+                "last_viewed_at": tally["last_viewed_at"],
+            }, conn=conn)
+
+        conn.commit()
+    finally:
+        conn.close()
 
     logger.info("Recorded %s Tautulli history events for user %s.", count, user_key)
     return count

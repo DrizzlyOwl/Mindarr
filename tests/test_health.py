@@ -59,3 +59,19 @@ def test_invalid_integration_name_raises():
         record_health("bogus", True, "x")
     with pytest.raises(ValueError):
         get_health("bogus")
+
+
+def test_get_all_health_uses_single_connection(monkeypatch):
+    import plex_recommender.health as health_mod
+
+    calls = 0
+    orig_get_conn = health_mod.get_connection
+
+    def counting_conn():
+        nonlocal calls
+        calls += 1
+        return orig_get_conn()
+
+    monkeypatch.setattr(health_mod, "get_connection", counting_conn)
+    get_all_health()
+    assert calls == 1

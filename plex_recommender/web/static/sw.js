@@ -1,7 +1,7 @@
 // Mindarr Service Worker — network-first caching strategy.
 // GET requests always try the network first; the cache is only used as a
 // fallback when the network is unavailable (offline) or the request fails.
-const CACHE_VERSION = "mindarr-v1.6.5";
+const CACHE_VERSION = "mindarr-v1.6.6";
 const APP_SHELL = [
   "/offline",
   "/manifest.json",

@@ -595,5 +595,21 @@ def test_get_user_action_counts():
     assert cleared["seen_count"] == 0
 
 
+def test_wal_mode_busy_timeout_and_watch_index():
+    from plex_recommender.db import get_connection
+
+    conn = get_connection()
+    journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    idx = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_watch_user_item'"
+    ).fetchone()
+    conn.close()
+
+    assert str(journal_mode).lower() == "wal"
+    assert int(busy_timeout) >= 30000
+    assert idx is not None
+
+
 
 

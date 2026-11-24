@@ -1,6 +1,7 @@
 """media_items: shared metadata cache upserts and availability/keyword lookups."""
 
 import json
+import sqlite3
 from typing import Optional, Dict, Any, List
 
 from plex_recommender.db import get_connection
@@ -63,13 +64,16 @@ def _item_params(item: Dict[str, Any]) -> tuple:
     )
 
 
-def upsert_media_item(item: Dict[str, Any]):
+def upsert_media_item(item: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
     """Insert or update a media item and update seen identifiers."""
-    conn = get_connection()
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_connection()
     cur = conn.cursor()
     cur.execute(_UPSERT_SQL, _item_params(item))
-    conn.commit()
-    conn.close()
+    if owns_conn:
+        conn.commit()
+        conn.close()
 
 
 def upsert_media_items_batch(items: List[Dict[str, Any]], batch_size: int = 250):

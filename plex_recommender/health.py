@@ -9,6 +9,7 @@ render the admin health banner and Settings-page status badges.
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from plex_recommender.db import get_connection
 from plex_recommender.db.recommendations import get_setting, set_setting
 
 INTEGRATIONS = ("tmdb", "overseerr", "tautulli")
@@ -56,8 +57,30 @@ def get_health(name: str) -> Dict[str, Any]:
 
 
 def get_all_health() -> Dict[str, Dict[str, Any]]:
-    """Return health status for every tracked integration."""
-    return {name: get_health(name) for name in INTEGRATIONS}
+    """Return health status for every tracked integration using a single DB query."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT key, value FROM app_settings WHERE key LIKE 'health_%'"
+    ).fetchall()
+    conn.close()
+
+    kv = {r["key"]: r["value"] for r in rows}
+    results: Dict[str, Dict[str, Any]] = {}
+    for name in INTEGRATIONS:
+        raw_ok = kv.get(f"health_{name}_ok")
+        ok: Optional[bool]
+        if raw_ok == "true":
+            ok = True
+        elif raw_ok == "false":
+            ok = False
+        else:
+            ok = None
+        results[name] = {
+            "ok": ok,
+            "message": kv.get(f"health_{name}_message") or None,
+            "checked_at": kv.get(f"health_{name}_checked_at") or None,
+        }
+    return results
 
 
 def get_unhealthy() -> Dict[str, Dict[str, Any]]:

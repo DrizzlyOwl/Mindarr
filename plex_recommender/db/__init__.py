@@ -11,17 +11,20 @@ from plex_recommender.db import migrations
 
 
 def get_connection() -> sqlite3.Connection:
-    """Returns SQLite connection with dict-like row factory."""
+    """Returns SQLite connection with dict-like row factory and busy timeout."""
     db_path = settings.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
 def init_db():
     """Initialize database tables and indexes."""
     conn = get_connection()
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     cur = conn.cursor()
 
     cur.execute("""
@@ -171,6 +174,7 @@ def init_db():
     # Indexes for fast lookup
     cur.execute("CREATE INDEX IF NOT EXISTS idx_watch_viewed_at ON watch_events(viewed_at)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_watch_user ON watch_events(user_key)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_watch_user_item ON watch_events(user_key, item_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_media_type ON media_items(media_type)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_seen_lookup ON seen_identifiers(user_key, id_type, id_value)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_user_media ON user_media(user_key)")

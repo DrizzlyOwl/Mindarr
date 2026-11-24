@@ -1,6 +1,7 @@
 """Per-user watch history: watch_events, user_media, seen_identifiers, and stats."""
 
 import json
+import sqlite3
 from typing import Optional, Dict, Any, List, Set
 
 from plex_recommender.db import get_connection
@@ -25,15 +26,17 @@ def add_seen_identifier(user_key: str, id_type: str, id_value: str, title: str =
     conn.close()
 
 
-def upsert_user_media(user_key: str, item: Dict[str, Any]):
+def upsert_user_media(user_key: str, item: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
     """Record that a user has watched an item, and register per-user seen identifiers.
 
     The rich metadata is stored (shared) in media_items via upsert_media_item;
     this function records the per-user relation + seen-index entries.
     """
-    upsert_media_item(item)
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_connection()
+    upsert_media_item(item, conn=conn)
 
-    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
@@ -68,18 +71,21 @@ def upsert_user_media(user_key: str, item: Dict[str, Any]):
             (str(user_key), "title_year", val, title, year),
         )
 
-    conn.commit()
-    conn.close()
+    if owns_conn:
+        conn.commit()
+        conn.close()
 
 
-def record_watch_event(event: Dict[str, Any]):
+def record_watch_event(event: Dict[str, Any], conn: Optional[sqlite3.Connection] = None):
     """Record a playback history event (scoped to a user_key), reconciling duplicates across Plex & Tautulli.
 
     Plex is Primary: when a Tautulli event arrives for a session already logged by Plex
     within 4 hours, the existing Plex event is enriched with duration and title rather
     than inserting a duplicate row.
     """
-    conn = get_connection()
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_connection()
     cur = conn.cursor()
     user_key = str(event.get("user_key", ""))
     item_id = str(event.get("item_id", ""))
@@ -116,8 +122,10 @@ def record_watch_event(event: Dict[str, Any]):
                     if updates:
                         params.append(row["id"])
                         cur.execute(f"UPDATE watch_events SET {', '.join(updates)} WHERE id = ?", params)
-                        conn.commit()
-                    conn.close()
+                        if owns_conn:
+                            conn.commit()
+                    if owns_conn:
+                        conn.close()
                     return
 
                 elif incoming_source == "plex" and row_source == "tautulli":
@@ -128,8 +136,9 @@ def record_watch_event(event: Dict[str, Any]):
                         "UPDATE watch_events SET source = 'plex', viewed_at = ?, duration_watched = ?, title = ? WHERE id = ?",
                         (viewed_at, best_dur, best_title, row["id"]),
                     )
-                    conn.commit()
-                    conn.close()
+                    if owns_conn:
+                        conn.commit()
+                        conn.close()
                     return
 
     # No duplicate session found -> insert new event
@@ -149,8 +158,9 @@ def record_watch_event(event: Dict[str, Any]):
         incoming_duration,
         incoming_source,
     ))
-    conn.commit()
-    conn.close()
+    if owns_conn:
+        conn.commit()
+        conn.close()
 
 
 def reconcile_watch_events(user_key: Optional[str] = None) -> int:

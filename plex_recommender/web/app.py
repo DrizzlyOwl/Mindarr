@@ -227,12 +227,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Mindarr", version=__version__, lifespan=lifespan)
 
 
+_UNSET_USER = object()
+
+
 def get_current_user(request: Request) -> Optional[dict]:
-    """Resolve the logged-in user from the session, or None."""
+    """Resolve the logged-in user from the session, or None (cached per request)."""
+    cached = getattr(request.state, "_current_user", _UNSET_USER)
+    if cached is not _UNSET_USER:
+        return cached
     user_key = request.session.get("user_key")
-    if not user_key:
-        return None
-    return get_user(user_key)
+    user = get_user(user_key) if user_key else None
+    request.state._current_user = user
+    return user
 
 
 def recommendations_ready(user: Optional[dict]) -> bool:
