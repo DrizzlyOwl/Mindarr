@@ -1274,6 +1274,180 @@ def test_same_origin_csrf_guard_blocks_cross_origin_post():
         assert good.status_code == 200
 
 
+def _sign_session_for(client: TestClient, user_key: str):
+    import itsdangerous, json, base64
+    signer = itsdangerous.TimestampSigner(settings.session_secret)
+    cookie = signer.sign(base64.b64encode(json.dumps({"user_key": user_key}).encode())).decode()
+    client.cookies.set("session", cookie)
+
+
+def test_auth_poll_admin_bootstrap_and_shared_user_flow(tmp_path, monkeypatch):
+    import plex_recommender.config as config_module
+    from plex_recommender.web import app as webapp
+    from plex_recommender.db.users import get_user, get_admin
+
+    monkeypatch.setattr(config_module, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(config_module, "ENV_MANAGED_KEYS", frozenset())
+    monkeypatch.setenv("DB_PATH", str(settings.db_path))
+    monkeypatch.setattr(webapp.settings, "plex_machine_id", "MID-1")
+
+    with TestClient(app) as client:
+        # 1. Unclaimed PIN
+        monkeypatch.setattr(webapp, "check_plex_pin", lambda pin_id: None)
+        r_unclaimed = client.post("/api/auth/poll", data={"pin_id": "10"})
+        assert r_unclaimed.status_code == 200
+        assert r_unclaimed.json() == {"claimed": False}
+
+        # 2. First user becomes admin and persists PLEX_TOKEN + PLEX_MACHINE_ID
+        monkeypatch.setattr(webapp, "check_plex_pin", lambda pin_id: "admin-tok-1")
+        monkeypatch.setattr(webapp, "get_plex_account", lambda tok: {
+            "user_key": "admin_1", "plex_uuid": "u-a", "username": "owner",
+            "title": "Owner", "email": "owner@x.com", "thumb": None,
+        })
+        monkeypatch.setattr(webapp, "get_server_machine_id", lambda token=None: "MID-1")
+
+        r_admin = client.post("/api/auth/poll", data={"pin_id": "10"})
+        assert r_admin.status_code == 200
+        body = r_admin.json()
+        assert body["claimed"] is True
+        assert body["authorized"] is True
+        assert body["is_admin"] is True
+        assert body["redirect"] == "/settings"
+        assert get_admin()["user_key"] == "admin_1"
+
+        # 3. Unauthorized shared user is denied
+        monkeypatch.setattr(webapp, "check_plex_pin", lambda pin_id: "guest-tok")
+        monkeypatch.setattr(webapp, "get_plex_account", lambda tok: {
+            "user_key": "guest_9", "plex_uuid": "u-g", "username": "stranger",
+            "title": "Stranger", "email": "stranger@x.com", "thumb": None,
+        })
+        monkeypatch.setattr(webapp, "check_user_access", lambda **kw: False)
+        r_denied = client.post("/api/auth/poll", data={"pin_id": "11"})
+        assert r_denied.status_code == 200
+        assert r_denied.json()["authorized"] is False
+        assert get_user("guest_9") is None
+
+        # 4. Authorized shared user succeeds as non-admin
+        monkeypatch.setattr(webapp, "check_user_access", lambda **kw: True)
+        monkeypatch.setattr(webapp, "get_plex_account", lambda tok: {
+            "user_key": "shared_2", "plex_uuid": "u-s", "username": "friend",
+            "title": "Friend", "email": "friend@x.com", "thumb": None,
+        })
+        r_shared = client.post("/api/auth/poll", data={"pin_id": "12"})
+        assert r_shared.status_code == 200
+        assert r_shared.json()["authorized"] is True
+        assert r_shared.json()["is_admin"] is False
+        assert get_user("shared_2")["is_admin"] == 0
+
+
+def test_onboarding_gate_redirects_incomplete_admin_until_completed(monkeypatch):
+    from plex_recommender.web import app as webapp
+    from plex_recommender.db.users import get_user
+
+    monkeypatch.setattr(webapp, "admin_setup_incomplete", lambda: True)
+    create_or_update_user({
+        "user_key": "admin_new", "username": "newadmin", "email": "na@x.com",
+        "title": "New Admin", "is_admin": True,
+    })
+    create_or_update_user({
+        "user_key": "shared_u", "username": "bob", "email": "bob@x.com",
+        "title": "Bob", "is_admin": False,
+    })
+
+    with TestClient(app) as client:
+        # Un-onboarded admin hitting / gets redirected to /welcome
+        _sign_session_for(client, "admin_new")
+        r_gate = client.get("/", follow_redirects=False)
+        assert r_gate.status_code == 303
+        assert r_gate.headers["location"] == "/welcome"
+
+        # Completing onboarding marks onboarded_at and stops the redirect
+        r_done = client.post("/welcome/complete", follow_redirects=False)
+        assert r_done.status_code == 303
+        assert get_user("admin_new")["onboarded_at"] is not None
+
+        r_after = client.get("/", follow_redirects=False)
+        assert r_after.status_code == 200
+
+        # Non-admin user is never gated to /welcome
+        _sign_session_for(client, "shared_u")
+        r_shared = client.get("/", follow_redirects=False)
+        assert r_shared.status_code == 200
+
+
+def test_overseerr_request_duplicate_guard_and_tv_seasons(monkeypatch):
+    from unittest.mock import MagicMock
+    from plex_recommender.web import app as webapp
+    from plex_recommender.db.recommendations import (
+        set_cached_recommendations, get_cached_recommendations,
+    )
+
+    set_cached_recommendations(f"{USER}:all::en:7.0:0:0", None, {"all_recommendations": [{"tmdb_id": "1"}]})
+
+    with TestClient(app) as client:
+        _login(client)
+
+        # Duplicate in queue -> blocked without calling request_media
+        monkeypatch.setattr(webapp.overseerr, "get_media_info", lambda tmdb_id, media_type: {
+            "exists": True, "status_code": 3, "status_name": "PROCESSING"
+        })
+        r_dup = client.post("/api/overseerr/request", data={"tmdb_id": "550", "media_type": "movie"})
+        assert r_dup.status_code == 200
+        assert r_dup.json()["already_requested"] is True
+        assert "downloading" in r_dup.json()["message"]
+
+        # Valid TV request defaults to seasons=[1], marks queued, and clears user cache
+        monkeypatch.setattr(webapp.overseerr, "get_media_info", lambda tmdb_id, media_type: {"exists": False, "status_code": 1})
+        monkeypatch.setattr(webapp.overseerr, "resolve_user_id", lambda **kw: 7)
+        mock_req = MagicMock(return_value=(True, "Requested!"))
+        monkeypatch.setattr(webapp.overseerr, "request_media", mock_req)
+        monkeypatch.setattr(webapp.overseerr, "mark_queued", MagicMock())
+
+        r_tv = client.post("/api/overseerr/request", data={"tmdb_id": "70523", "media_type": "show"})
+        assert r_tv.status_code == 200
+        assert r_tv.json()["success"] is True
+        assert mock_req.call_args.kwargs["seasons"] == [1]
+        assert mock_req.call_args.kwargs["user_id"] == 7
+        assert get_cached_recommendations(f"{USER}:all::en:7.0:0:0", None) is None
+
+
+def test_admin_logs_system_and_sources_routes():
+    from plex_recommender.logs import log_handler
+
+    log_handler.log_event("INFO", "plex_recommender.test", "audit line 1", user="alice")
+    create_or_update_user({
+        "user_key": "shared_x", "username": "bob", "email": "bob@x.com",
+        "title": "Bob", "is_admin": False,
+    })
+
+    with TestClient(app) as client:
+        # Non-admin denied on admin logs/system endpoints
+        _sign_session_for(client, "shared_x")
+        assert client.get("/settings/logs").status_code == 403
+        assert client.get("/api/logs/export").status_code == 403
+        assert client.post("/api/logs/clear").status_code == 403
+        assert client.post("/api/system/clear-user", data={"user_key": USER}).status_code == 403
+
+        # Admin access succeeds
+        _login(client)
+        upsert_user_media(USER, {"item_id": "m1", "media_type": "movie", "title": "History Film", "view_count": 1})
+        record_watch_event({"user_key": USER, "item_id": "m1", "title": "History Film", "viewed_at": "2026-03-01T10:00:00", "source": "plex"})
+
+        assert client.get("/sources").status_code == 200
+        assert client.get("/settings/logs").status_code == 200
+        r_json = client.get("/api/logs/export?format=json")
+        assert r_json.status_code == 200
+        assert any("audit line 1" in row["message"] for row in r_json.json())
+
+        r_txt = client.get("/api/logs/export?format=text")
+        assert r_txt.status_code == 200
+        assert "audit line 1" in r_txt.text
+
+        assert client.post("/api/logs/truncate", data={"days": "7"}, follow_redirects=False).status_code == 303
+        assert client.post("/api/logs/clear", follow_redirects=False).status_code == 303
+        assert client.post("/api/system/clear-user", data={"user_key": USER}, follow_redirects=False).status_code == 303
+
+
 
 
 

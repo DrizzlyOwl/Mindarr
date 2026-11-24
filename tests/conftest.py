@@ -1,7 +1,9 @@
+import os
 import sqlite3
 from pathlib import Path
 import pytest
 
+import plex_recommender.config as config_module
 from plex_recommender.config import settings
 
 PROD_DB_PATH = Path("config/data.db")
@@ -54,16 +56,28 @@ def cleanup_alice_from_db(db_path: Path):
 
 @pytest.fixture(scope="session", autouse=True)
 def session_isolate_db(tmp_path_factory):
-    """Protect the production database by ensuring settings.db_path defaults to a temp db."""
+    """Protect the production database and .env by isolating both to a temp dir."""
     test_dir = tmp_path_factory.mktemp("session_db")
     session_db = test_dir / "session.db"
+    session_env = test_dir / ".env"
+
     orig_db = settings.db_path
+    orig_env_file = config_module.ENV_FILE
+    orig_db_env = os.environ.get("DB_PATH")
+
     settings.db_path = session_db
+    config_module.ENV_FILE = session_env
+    os.environ["DB_PATH"] = str(session_db)
     yield
     cleanup_alice_from_db(session_db)
     cleanup_alice_from_db(PROD_DB_PATH)
     cleanup_alice_from_db(orig_db)
     settings.db_path = orig_db
+    config_module.ENV_FILE = orig_env_file
+    if orig_db_env is None:
+        os.environ.pop("DB_PATH", None)
+    else:
+        os.environ["DB_PATH"] = orig_db_env
 
 
 @pytest.fixture(autouse=True)

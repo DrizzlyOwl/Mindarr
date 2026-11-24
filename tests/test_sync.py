@@ -425,3 +425,72 @@ def test_sync_tautulli_metadata_caching():
     assert count == 5
     # Crucial assertion: get_metadata should have been called only ONCE for all 5 episodes due to cache!
     assert mock_get_meta.call_count == 1
+
+
+def test_sync_plex_user_history_episode_rollup_and_shared_connection(monkeypatch):
+    from datetime import datetime
+    from plex_recommender.db.watch import get_user_media_items, get_watch_events
+
+    monkeypatch.setattr(settings, "plex_token", "tok")
+
+    class FakeTag:
+        def __init__(self, tag):
+            self.tag = tag
+
+    class FakeGuid:
+        def __init__(self, gid):
+            self.id = gid
+
+    class FakeItem:
+        def __init__(self, rating_key, title, year, genres, tmdb_id):
+            self.ratingKey = rating_key
+            self.title = title
+            self.year = year
+            self.genres = [FakeTag(g) for g in genres]
+            self.directors = []
+            self.roles = []
+            self.guids = [FakeGuid(f"tmdb://{tmdb_id}")]
+            self.guid = ""
+            self.userRating = 8.5
+
+    class FakeHistEntry:
+        def __init__(self, rating_key, mtype, title, viewed_at, gp_key=None, gp_title=""):
+            self.ratingKey = rating_key
+            self.type = mtype
+            self.title = title
+            self.viewedAt = viewed_at
+            self.duration = 1800000
+            self.grandparentRatingKey = gp_key
+            self.grandparentTitle = gp_title
+
+    class FakePlex:
+        def systemAccounts(self):
+            return [FakeAccount(1, "owner")]
+
+        def history(self, maxresults=10000, accountID=None):
+            return [
+                FakeHistEntry(101, "episode", "Ep 1", datetime(2026, 2, 1, 20, 0), gp_key=900, gp_title="Space Show"),
+                FakeHistEntry(102, "episode", "Ep 2", datetime(2026, 2, 2, 20, 0), gp_key=900, gp_title="Space Show"),
+                FakeHistEntry(201, "movie", "Solo Film", datetime(2026, 2, 3, 21, 0)),
+            ]
+
+        def fetchItem(self, key):
+            if key == 900:
+                return FakeItem(900, "Space Show", 2024, ["Sci-Fi", "Drama"], "9000")
+            return FakeItem(201, "Solo Film", 2023, ["Thriller"], "2010")
+
+    with patch.object(sync, "get_plex_instance", return_value=FakePlex()):
+        recorded = sync.sync_plex_user_history(USER)
+
+    assert recorded == 3
+    events = get_watch_events(USER)
+    assert len(events) == 3
+
+    # Episodes should roll up into parent show (item_id="900") with view_count=2
+    media = {m["item_id"]: m for m in get_user_media_items(USER)}
+    assert "900" in media
+    assert media["900"]["media_type"] == "show"
+    assert media["900"]["view_count"] == 2
+    assert media["900"]["genres"] == ["Sci-Fi", "Drama"]
+    assert "201" in media
+    assert media["201"]["view_count"] == 1

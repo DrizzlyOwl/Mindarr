@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from plex_recommender.config import settings
 from plex_recommender.db import init_db
