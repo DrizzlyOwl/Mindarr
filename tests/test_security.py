@@ -73,7 +73,6 @@ def test_non_admin_cannot_access_admin_api_or_pages():
         ("GET", "/api/plex/test", None),
         ("GET", "/api/overseerr/test", None),
         ("GET", "/api/tautulli/test", None),
-        ("POST", "/api/community/deanonymize", None),
     ]
     admin_pages = [
         "/settings",
@@ -300,7 +299,7 @@ def test_pyproject_and_requirements_sync_runtime_dependencies():
     req_names = {re.split(r"[<>=\[]", line)[0].lower() for line in req_lines}
     assert "pytest" not in req_names
     assert "httpx" not in req_names
-    assert "faker" in req_names
+    assert "faker" not in req_names
 
     for line in req_lines:
         assert f'"{line}"' in pyproject_text, f"{line!r} missing or out of sync in pyproject.toml"

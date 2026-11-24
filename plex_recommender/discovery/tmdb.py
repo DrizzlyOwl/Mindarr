@@ -355,6 +355,8 @@ class TMDbClient:
         with_keywords: Optional[List[int]] = None,
         min_rating: float = 7.0,
         min_votes: int = 200,
+        max_votes: Optional[int] = None,
+        with_runtime_lte: Optional[int] = None,
         sort_by: str = "vote_average.desc",
         page: int = 1
     ) -> List[Dict[str, Any]]:
@@ -366,6 +368,10 @@ class TMDbClient:
             "vote_count.gte": min_votes,
             "include_adult": "false"
         }
+        if max_votes is not None:
+            params["vote_count.lte"] = int(max_votes)
+        if with_runtime_lte is not None:
+            params["with_runtime.lte"] = int(with_runtime_lte)
         if with_genres:
             params["with_genres"] = ",".join(str(g) for g in with_genres)
         if with_people:

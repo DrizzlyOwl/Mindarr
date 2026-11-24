@@ -144,10 +144,13 @@
             <div class="space-y-2">
                 <div class="flex flex-wrap items-center gap-3">
                     <h1 class="text-2xl font-bold text-white tracking-tight">Unseen Content Recommendations</h1>
-                    <!-- Discover / Watchlist View Tabs -->
+                    <!-- Discover / Watch Together / Watchlist View Tabs -->
                     <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800" role="tablist" aria-label="Recommendations view">
-                        <button type="button" id="tab-view-discover" role="tab" aria-selected="{{ 'true' if selected_view != 'watchlist' else 'false' }}" onclick="switchRecommendationsView('discover')" class="px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view != 'watchlist' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
+                        <button type="button" id="tab-view-discover" role="tab" aria-selected="{{ 'true' if selected_view == 'discover' else 'false' }}" onclick="switchRecommendationsView('discover')" class="px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view == 'discover' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
                             Discover
+                        </button>
+                        <button type="button" id="tab-view-together" role="tab" aria-selected="{{ 'true' if selected_view == 'together' else 'false' }}" onclick="switchRecommendationsView('together')" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view == 'together' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
+                            <span>Watch Together</span>
                         </button>
                         <button type="button" id="tab-view-watchlist" role="tab" aria-selected="{{ 'true' if selected_view == 'watchlist' else 'false' }}" onclick="switchRecommendationsView('watchlist')" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition {% if selected_view == 'watchlist' %}bg-amber-500 text-gray-950 shadow-sm{% else %}text-slate-400 hover:text-white{% endif %}">
                             <span>Watchlist</span>
@@ -159,6 +162,8 @@
                     <p id="recs-subtitle" class="text-sm text-slate-400">
                         {% if selected_view == 'watchlist' %}
                         Your saved shortlist — live-checked against Plex &amp; Overseerr availability.
+                        {% elif selected_view == 'together' %}
+                        Blend tastes with household &amp; server peers — guaranteed unseen by everyone.
                         {% else %}
                         Filtered against your Plex history. Click a card for trailer &amp; details, or tap <span class="text-amber-400 font-bold">Match (i)</span> for rationale.
                         {% endif %}
@@ -169,6 +174,13 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <!-- Tonight Picker ("Surprise Me") CTA -->
+                <button type="button" onclick="openTonightModal()" class="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/20 transition active:scale-95" title="Spin mood-curated finalists for tonight">
+                    <svg class="w-3.5 h-3.5 fill-current shrink-0" viewBox="0 0 20 20">
+                        <path d="M11.983 1.907a1 1 0 00-1.966 0l-1.03 5.831-5.788 1.031a1 1 0 000 1.966l5.788 1.032 1.03 5.831a1 1 0 001.966 0l1.031-5.831 5.788-1.032a1 1 0 000-1.966l-5.788-1.031-1.031-5.831z"/>
+                    </svg>
+                    <span>Pick for Tonight</span>
+                </button>
                 <!-- Columns Density Slider (hidden on mobile; grid is fixed at 1-2 cols there) -->
                 <div class="hidden lg:flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700" title="Adjust how many recommendation cards are shown per row">
                     <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -199,6 +211,43 @@
                     </svg>
                 </button>
             </div>
+        </div>
+
+        <!-- Watch Together Panel (visible only in Watch Together view) -->
+        <div id="together-panel" class="{% if selected_view != 'together' %}hidden {% endif %}border-t border-slate-800 px-6 py-4 bg-slate-950/40 space-y-3">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div class="space-y-1.5 flex-1">
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Who’s Watching? <span class="text-slate-500 font-normal normal-case">(select 1 or more peers)</span></div>
+                    <div class="flex flex-wrap items-center gap-2" id="together-peers-list">
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                            <span>You ({{ current_user.title or current_user.username }})</span>
+                        </span>
+                        {% for peer in together_peers %}
+                        <button type="button"
+                                data-together-peer="{{ peer.user_key }}"
+                                data-peer-name="{{ peer.display_name }}"
+                                class="together-peer-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition">
+                            <span>+ {{ peer.display_name }}</span>
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Share / Join by Watch Code -->
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                    <div class="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
+                        <span class="text-slate-400">Your Code:</span>
+                        <code id="my-watch-code" class="font-mono font-bold text-amber-400 select-all">{{ my_watch_code }}</code>
+                        <button type="button" onclick="copyWatchCode()" class="text-[11px] font-bold text-slate-300 hover:text-white px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 transition" title="Copy your Watch Code to share with friends">Copy</button>
+                    </div>
+                    <form id="together-code-form" onsubmit="addPeerByCode(event)" class="flex items-center gap-1.5">
+                        <input type="text" id="together-code-input" placeholder="Paste friend's code…" maxlength="16" class="w-36 sm:w-40 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-amber-500">
+                        <button type="submit" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 text-xs font-bold transition">Add</button>
+                    </form>
+                </div>
+            </div>
+            <div id="together-shared-summary" class="hidden text-xs text-emerald-400 font-medium flex items-center gap-2 pt-1"></div>
         </div>
 
         <!-- Watchlist Quick Filters Bar (visible only in Watchlist view) -->
@@ -452,7 +501,11 @@
                     if (descriptor) {
                         descriptor.reset();
                         currentPage = 1;
-                        loadRecommendations();
+                        if (currentView === 'together') {
+                            loadTogetherRecommendations();
+                        } else {
+                            loadRecommendations();
+                        }
                     }
                 });
             });
@@ -622,7 +675,11 @@
             syncKidsStyle();
             renderActiveFilterSummary();
             currentPage = 1;
-            loadRecommendations();
+            if (currentView === 'together') {
+                loadTogetherRecommendations();
+            } else {
+                loadRecommendations();
+            }
         }
         window.resetFilters = resetFilters;
 
@@ -755,7 +812,11 @@
             if (refreshLink) {
                 refreshLink.addEventListener('click', function (ev) {
                     ev.preventDefault();
-                    loadRecommendations({ force_refresh: '1' });
+                    if (currentView === 'together') {
+                        loadTogetherRecommendations({ force_refresh: '1' });
+                    } else {
+                        loadRecommendations({ force_refresh: '1' });
+                    }
                 });
             }
         }
@@ -792,11 +853,178 @@
                     const target = parseInt(btn.getAttribute('data-page'), 10);
                     if (!target || target === currentPage) return;
                     currentPage = target;
-                    loadRecommendations();
+                    if (currentView === 'together') {
+                        loadTogetherRecommendations();
+                    } else {
+                        loadRecommendations();
+                    }
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 });
             });
         }
+
+        // --- Watch Together (Group Blend) State & Fetching ---
+        const selectedTogetherPeers = new Set();
+        window.__selectedTogetherPeers = selectedTogetherPeers;
+
+        function getSelectedPeersCsv() {
+            return Array.from(selectedTogetherPeers).join(',');
+        }
+        window.getSelectedPeersCsv = getSelectedPeersCsv;
+
+        function syncPeerButtonsUI() {
+            document.querySelectorAll('.together-peer-btn').forEach((btn) => {
+                const uk = btn.dataset.togetherPeer;
+                const name = btn.dataset.peerName || 'Peer';
+                const active = selectedTogetherPeers.has(uk);
+                btn.className = active
+                    ? 'together-peer-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold transition'
+                    : 'together-peer-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition';
+                const labelSpan = btn.querySelector('span');
+                if (labelSpan) labelSpan.textContent = (active ? '✓ ' : '+ ') + name;
+            });
+        }
+
+        document.getElementById('together-peers-list')?.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('.together-peer-btn');
+            if (!btn) return;
+            const uk = btn.dataset.togetherPeer;
+            if (!uk) return;
+            if (selectedTogetherPeers.has(uk)) {
+                selectedTogetherPeers.delete(uk);
+            } else {
+                if (selectedTogetherPeers.size >= 5) {
+                    if (typeof showToast === 'function') showToast('Maximum 5 peers can be blended at once.', 'info');
+                    return;
+                }
+                selectedTogetherPeers.add(uk);
+            }
+            syncPeerButtonsUI();
+            currentPage = 1;
+            loadTogetherRecommendations();
+        });
+
+        async function copyWatchCode() {
+            const code = document.getElementById('my-watch-code')?.textContent?.trim();
+            if (!code) return;
+            try {
+                await navigator.clipboard.writeText(code);
+                if (typeof showToast === 'function') showToast(`Copied Watch Code ${code}`, 'success');
+            } catch (e) {
+                if (typeof showToast === 'function') showToast(`Your Watch Code: ${code}`, 'info');
+            }
+        }
+        window.copyWatchCode = copyWatchCode;
+
+        async function addPeerByCode(ev) {
+            ev.preventDefault();
+            const input = document.getElementById('together-code-input');
+            const code = (input?.value || '').trim();
+            if (!code) return;
+
+            const fd = new FormData();
+            fd.append('code', code);
+            try {
+                const res = await fetch('/api/together/resolve-code', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok || !data.success || !data.peer) {
+                    if (typeof showToast === 'function') showToast(data.error || 'Could not resolve Watch Code.', 'error');
+                    return;
+                }
+                const peer = data.peer;
+                const listEl = document.getElementById('together-peers-list');
+                let existingBtn = listEl?.querySelector(`[data-together-peer="${CSS.escape(String(peer.user_key))}"]`);
+                if (!existingBtn && listEl) {
+                    existingBtn = document.createElement('button');
+                    existingBtn.type = 'button';
+                    existingBtn.dataset.togetherPeer = peer.user_key;
+                    existingBtn.dataset.peerName = peer.display_name;
+                    existingBtn.className = 'together-peer-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition';
+                    const sp = document.createElement('span');
+                    sp.textContent = '+ ' + peer.display_name;
+                    existingBtn.appendChild(sp);
+                    listEl.appendChild(existingBtn);
+                } else if (existingBtn && peer.display_name) {
+                    existingBtn.dataset.peerName = peer.display_name;
+                }
+                selectedTogetherPeers.add(peer.user_key);
+                syncPeerButtonsUI();
+                if (input) input.value = '';
+                currentPage = 1;
+                loadTogetherRecommendations();
+                if (typeof showToast === 'function') showToast(`Added ${peer.display_name} to Watch Together!`, 'success');
+            } catch (e) {
+                if (typeof showToast === 'function') showToast('Error resolving Watch Code: ' + e, 'error');
+            }
+        }
+        window.addPeerByCode = addPeerByCode;
+
+        async function loadTogetherRecommendations(extra) {
+            const reqId = ++currentRequestId;
+            const summaryEl = document.getElementById('together-shared-summary');
+            const peersCsv = getSelectedPeersCsv();
+            const params = currentParams(extra);
+            params.set('view', 'together');
+            if (peersCsv) params.set('peers', peersCsv);
+            history.replaceState(null, '', '/recommendations?' + params.toString());
+
+            if (!peersCsv) {
+                if (summaryEl) summaryEl.classList.add('hidden');
+                cacheStatusEl.classList.add('hidden');
+                paginationEl.classList.add('hidden');
+                resultsEl.innerHTML = `
+                <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center space-y-4 max-w-xl mx-auto shadow-xl">
+                    <div class="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+                        <svg class="w-7 h-7 fill-current" viewBox="0 0 20 20">
+                            <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-bold text-white">Pick Who You’re Watching With</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Select 1 or more server members above (or paste a friend’s Watch Code) to blend everyone’s tastes and find movies &amp; shows nobody in the group has watched yet.
+                    </p>
+                </div>`;
+                return;
+            }
+
+            resultsEl.innerHTML = skeletonMarkup('Blending tastes and excluding everyone’s watched history…');
+            cacheStatusEl.classList.add('hidden');
+            paginationEl.classList.add('hidden');
+
+            try {
+                const res = await fetch('/api/recommendations/together?' + params.toString(), {
+                    headers: { 'X-Requested-With': 'fetch' }
+                });
+                const data = await res.json();
+                if (reqId !== currentRequestId) return;
+
+                if (typeof data.watchlist_count === 'number') {
+                    updateWatchlistBadge(data.watchlist_count);
+                }
+                if (summaryEl) {
+                    if (data.has_results && data.group_size >= 2) {
+                        const sharedStr = (data.shared_genres && data.shared_genres.length)
+                            ? ` • Shared favorites: ${escapeHtml(data.shared_genres.join(', '))}`
+                            : '';
+                        summaryEl.textContent = `Blending ${data.group_size} viewers${sharedStr} • Guaranteed unseen by everyone`;
+                        summaryEl.classList.remove('hidden');
+                    } else {
+                        summaryEl.classList.add('hidden');
+                    }
+                }
+                await swapInResults(data.html || '');
+                renderCacheStatus(data);
+                renderPagination(data);
+            } catch (e) {
+                if (reqId !== currentRequestId) return;
+                resultsEl.innerHTML = `
+                <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-3">
+                    <div class="text-amber-400 font-bold text-lg">Could not load Watch Together picks</div>
+                    <p class="text-sm text-slate-300">${escapeHtml(e)}</p>
+                </div>`;
+            }
+        }
+        window.loadTogetherRecommendations = loadTogetherRecommendations;
 
         // --- Discover / Watchlist View Switching ---
         function updateWatchlistBadge(count) {
@@ -853,23 +1081,34 @@
         window.setWatchlistTypeFilter = setWatchlistTypeFilter;
 
         function switchRecommendationsView(view) {
-            const nextView = view === 'watchlist' ? 'watchlist' : 'discover';
+            const nextView = (view === 'watchlist' || view === 'together') ? view : 'discover';
             currentView = nextView;
             window.__recsCurrentView = nextView;
 
             const tabDisc = document.getElementById('tab-view-discover');
+            const tabTog = document.getElementById('tab-view-together');
             const tabWl = document.getElementById('tab-view-watchlist');
             const badge = document.getElementById('watchlist-count-badge');
             const subtitle = document.getElementById('recs-subtitle');
             const filtersToggleBtn = document.getElementById('filters-toggle-btn');
             const wlFilterBar = document.getElementById('watchlist-filter-bar');
+            const togetherPanel = document.getElementById('together-panel');
 
             const isWl = nextView === 'watchlist';
+            const isTog = nextView === 'together';
+            const isDisc = nextView === 'discover';
+
             if (tabDisc) {
-                tabDisc.setAttribute('aria-selected', isWl ? 'false' : 'true');
-                tabDisc.className = !isWl
+                tabDisc.setAttribute('aria-selected', isDisc ? 'true' : 'false');
+                tabDisc.className = isDisc
                     ? 'px-3 py-1 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm'
                     : 'px-3 py-1 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+            }
+            if (tabTog) {
+                tabTog.setAttribute('aria-selected', isTog ? 'true' : 'false');
+                tabTog.className = isTog
+                    ? 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm'
+                    : 'inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
             }
             if (tabWl) {
                 tabWl.setAttribute('aria-selected', isWl ? 'true' : 'false');
@@ -883,17 +1122,26 @@
                     : 'px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-800 text-amber-400';
             }
             if (subtitle) {
-                subtitle.innerHTML = isWl
-                    ? 'Your saved shortlist — live-checked against Plex &amp; Overseerr availability.'
-                    : 'Filtered against your Plex history. Click a card for trailer &amp; details, or tap <span class="text-amber-400 font-bold">Match (i)</span> for rationale.';
+                if (isWl) {
+                    subtitle.textContent = 'Your saved shortlist — live-checked against Plex & Overseerr availability.';
+                } else if (isTog) {
+                    subtitle.textContent = 'Blend tastes with household & server peers — guaranteed unseen by everyone.';
+                } else {
+                    subtitle.innerHTML = 'Filtered against your Plex history. Click a card for trailer &amp; details, or tap <span class="text-amber-400 font-bold">Match (i)</span> for rationale.';
+                }
             }
             if (filtersToggleBtn) filtersToggleBtn.classList.toggle('hidden', isWl);
             if (wlFilterBar) wlFilterBar.classList.toggle('hidden', !isWl);
+            if (togetherPanel) togetherPanel.classList.toggle('hidden', !isTog);
 
+            currentPage = 1;
             if (isWl) {
                 if (filtersDrawer) filtersDrawer.classList.add('hidden');
                 if (activeFilterPillsEl) activeFilterPillsEl.classList.add('hidden');
                 loadWatchlist();
+            } else if (isTog) {
+                renderActiveFilterSummary();
+                loadTogetherRecommendations();
             } else {
                 renderActiveFilterSummary();
                 loadRecommendations();
@@ -913,17 +1161,30 @@
             syncKidsStyle();
             renderActiveFilterSummary();
             currentPage = 1; // Reset to first page when filters change.
-            loadRecommendations();
+            if (currentView === 'together') {
+                loadTogetherRecommendations();
+            } else {
+                loadRecommendations();
+            }
         });
         form.addEventListener('submit', function (ev) {
             ev.preventDefault();
             currentPage = 1;
-            loadRecommendations();
+            if (currentView === 'together') {
+                loadTogetherRecommendations();
+            } else {
+                loadRecommendations();
+            }
         });
 
         // Initial background fetch on first load.
         if (currentView === 'watchlist') {
             loadWatchlist();
+        } else if (currentView === 'together') {
+            const urlPeers = new URLSearchParams(window.location.search).get('peers') || '';
+            urlPeers.split(',').map(s => s.trim()).filter(Boolean).forEach(k => selectedTogetherPeers.add(k));
+            syncPeerButtonsUI();
+            loadTogetherRecommendations();
         } else {
             const initialForce = new URLSearchParams(window.location.search).get('force_refresh');
             loadRecommendations(initialForce ? { force_refresh: initialForce } : undefined);
@@ -2055,13 +2316,383 @@
         }
     }
 
+    // --- Tonight Picker ("Surprise Me" / Roulette) ---
+    let __tonightExcludeIds = new Set();
+    let __tonightSource = 'discover';
+    let __tonightMood = 'best';
+    let __tonightType = 'all';
+
+    function openTonightModal() {
+        const modal = document.getElementById('tonight-modal');
+        if (!modal) return;
+        __tonightExcludeIds = new Set();
+
+        // Default source to current view if Watchlist or Watch Together (with peers)
+        const peersCsv = typeof getSelectedPeersCsv === 'function' ? getSelectedPeersCsv() : '';
+        if (window.__recsCurrentView === 'watchlist') {
+            setTonightSource('watchlist');
+        } else if (window.__recsCurrentView === 'together' && peersCsv) {
+            setTonightSource('together');
+        } else {
+            setTonightSource('discover');
+        }
+
+        const resultsBox = document.getElementById('tonight-results');
+        if (resultsBox) {
+            resultsBox.innerHTML = '<div class="text-xs text-slate-400 text-center py-6">Choose your vibe above and hit <strong class="text-amber-400">Pick Tonight</strong> to deal 3 finalists.</div>';
+        }
+        const rerollBtn = document.getElementById('tonight-reroll-btn');
+        if (rerollBtn) rerollBtn.classList.add('hidden');
+
+        modal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+    }
+    window.openTonightModal = openTonightModal;
+
+    function closeTonightModal() {
+        const modal = document.getElementById('tonight-modal');
+        if (modal) modal.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+    }
+    window.closeTonightModal = closeTonightModal;
+
+    function setTonightSource(src) {
+        __tonightSource = src;
+        __tonightExcludeIds = new Set();
+        document.querySelectorAll('.tonight-src-btn').forEach((btn) => {
+            const active = btn.dataset.tonightSrc === src;
+            btn.className = active
+                ? 'tonight-src-btn px-3 py-1.5 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm'
+                : 'tonight-src-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white';
+        });
+    }
+    window.setTonightSource = setTonightSource;
+
+    function setTonightMood(mood) {
+        __tonightMood = mood;
+        __tonightExcludeIds = new Set();
+        document.querySelectorAll('.tonight-mood-btn').forEach((btn) => {
+            const active = btn.dataset.tonightMood === mood;
+            btn.className = active
+                ? 'tonight-mood-btn px-3 py-1.5 rounded-full text-xs font-bold border transition bg-amber-500/20 border-amber-500 text-amber-300'
+                : 'tonight-mood-btn px-3 py-1.5 rounded-full text-xs font-semibold border transition bg-slate-800/80 border-slate-700 text-slate-300 hover:border-slate-500';
+        });
+    }
+    window.setTonightMood = setTonightMood;
+
+    function setTonightType(t) {
+        __tonightType = t;
+        __tonightExcludeIds = new Set();
+        document.querySelectorAll('.tonight-type-btn').forEach((btn) => {
+            const active = btn.dataset.tonightType === t;
+            btn.className = active
+                ? 'tonight-type-btn px-3 py-1 rounded-lg text-xs font-bold transition bg-slate-800 text-white shadow-sm'
+                : 'tonight-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white';
+        });
+    }
+    window.setTonightType = setTonightType;
+
+    async function spinTonightPicker(isReroll = false) {
+        const resultsBox = document.getElementById('tonight-results');
+        const spinBtn = document.getElementById('tonight-spin-btn');
+        const rerollBtn = document.getElementById('tonight-reroll-btn');
+        if (!resultsBox) return;
+
+        if (!isReroll) __tonightExcludeIds = new Set();
+
+        const availOnly = document.getElementById('tonight-available-only')?.checked ? '1' : '0';
+        const peersCsv = typeof getSelectedPeersCsv === 'function' ? getSelectedPeersCsv() : '';
+
+        if (__tonightSource === 'together' && !peersCsv) {
+            if (typeof showToast === 'function') {
+                showToast('Select at least 1 friend in Watch Together first.', 'info');
+            }
+            return;
+        }
+
+        if (spinBtn) spinBtn.disabled = true;
+        if (rerollBtn) rerollBtn.disabled = true;
+        resultsBox.innerHTML = `
+            <div class="py-8 text-center space-y-2">
+                <svg class="animate-spin w-6 h-6 text-amber-400 mx-auto" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <div class="text-xs text-slate-400 font-medium">Shuffling tonight’s finalists…</div>
+            </div>`;
+
+        const params = new URLSearchParams({
+            source: __tonightSource,
+            type: __tonightType,
+            mood: __tonightMood,
+            available: availOnly,
+        });
+        if (__tonightSource === 'together' && peersCsv) params.set('peers', peersCsv);
+        if (__tonightExcludeIds.size > 0) params.set('exclude_ids', Array.from(__tonightExcludeIds).join(','));
+
+        try {
+            const res = await fetch('/api/recommendations/tonight?' + params.toString(), {
+                headers: { 'X-Requested-With': 'fetch' }
+            });
+            const data = await res.json();
+            if (spinBtn) spinBtn.disabled = false;
+            if (rerollBtn) rerollBtn.disabled = false;
+
+            if (!res.ok || !data.success) {
+                const errEl = document.createElement('div');
+                errEl.className = 'text-xs text-rose-400 text-center py-6';
+                errEl.textContent = data.error || 'Could not pick tonight’s finalists.';
+                resultsBox.replaceChildren(errEl);
+                return;
+            }
+
+            const picks = data.picks || [];
+            if (!picks.length) {
+                const msg = __tonightExcludeIds.size > 0
+                    ? 'You’ve spun through every match for this vibe! Resetting exclusions — hit Pick Tonight to spin again.'
+                    : 'No titles matched this vibe & availability filter. Try turning off "On Plex only" or switching mood.';
+                __tonightExcludeIds = new Set();
+                const emptyEl = document.createElement('div');
+                emptyEl.className = 'text-xs text-slate-400 text-center py-6';
+                emptyEl.textContent = msg;
+                resultsBox.replaceChildren(emptyEl);
+                if (rerollBtn) rerollBtn.classList.add('hidden');
+                return;
+            }
+
+            picks.forEach((p) => __tonightExcludeIds.add(String(p.tmdb_id)));
+            renderTonightPicks(resultsBox, picks, Boolean(data.has_overseerr));
+            if (rerollBtn) rerollBtn.classList.remove('hidden');
+        } catch (e) {
+            if (spinBtn) spinBtn.disabled = false;
+            if (rerollBtn) rerollBtn.disabled = false;
+            const errEl = document.createElement('div');
+            errEl.className = 'text-xs text-rose-400 text-center py-6';
+            errEl.textContent = 'Error loading picks: ' + e;
+            resultsBox.replaceChildren(errEl);
+        }
+    }
+    window.spinTonightPicker = spinTonightPicker;
+
+    function renderTonightPicks(container, picks, hasOverseerr) {
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-1 sm:grid-cols-3 gap-4';
+
+        picks.forEach((p, idx) => {
+            const card = document.createElement('div');
+            card.className = idx === 0
+                ? 'bg-slate-950/80 border-2 border-amber-500/60 rounded-xl overflow-hidden flex flex-col justify-between shadow-xl'
+                : 'bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg';
+
+            const topWrap = document.createElement('div');
+            topWrap.className = 'p-3.5 space-y-2.5';
+
+            // Top badge row
+            const badgeRow = document.createElement('div');
+            badgeRow.className = 'flex items-center justify-between gap-2';
+            const rankBadge = document.createElement('span');
+            rankBadge.className = idx === 0
+                ? 'px-2 py-0.5 rounded-md bg-amber-500 text-gray-950 text-[10px] font-black uppercase'
+                : 'px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-bold uppercase';
+            rankBadge.textContent = idx === 0 ? '★ Top Pick' : `Option #${idx + 1}`;
+            badgeRow.appendChild(rankBadge);
+
+            if (p.available_on_plex) {
+                const plexB = document.createElement('span');
+                plexB.className = 'px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold';
+                plexB.textContent = 'On Plex';
+                badgeRow.appendChild(plexB);
+            } else if (p.match_score) {
+                const ms = document.createElement('span');
+                ms.className = 'text-[11px] font-bold text-amber-400';
+                ms.textContent = `${p.match_score}% Match`;
+                badgeRow.appendChild(ms);
+            }
+            topWrap.appendChild(badgeRow);
+
+            // Poster + Title row
+            const mediaRow = document.createElement('div');
+            mediaRow.className = 'flex gap-3 items-start';
+            if (p.poster_url) {
+                const img = document.createElement('img');
+                img.src = p.poster_url;
+                img.alt = p.title || '';
+                img.className = 'w-14 aspect-[2/3] object-cover rounded-lg border border-slate-800 shrink-0 bg-slate-900';
+                mediaRow.appendChild(img);
+            }
+            const metaCol = document.createElement('div');
+            metaCol.className = 'min-w-0 flex-1 space-y-1';
+            const titleEl = document.createElement('h4');
+            titleEl.className = 'text-sm font-bold text-white leading-snug line-clamp-2';
+            titleEl.textContent = p.title || 'Untitled';
+            metaCol.appendChild(titleEl);
+
+            const subEl = document.createElement('div');
+            subEl.className = 'text-[11px] text-slate-400';
+            subEl.textContent = [p.year, p.media_type === 'show' ? 'TV' : 'Movie', p.rating ? `★ ${p.rating}` : ''].filter(Boolean).join(' • ');
+            metaCol.appendChild(subEl);
+
+            if (p.rationale) {
+                const ratEl = document.createElement('div');
+                ratEl.className = 'text-[10px] text-slate-500 line-clamp-2';
+                ratEl.textContent = p.rationale;
+                metaCol.appendChild(ratEl);
+            }
+            mediaRow.appendChild(metaCol);
+            topWrap.appendChild(mediaRow);
+
+            card.appendChild(topWrap);
+
+            // Action row
+            const actWrap = document.createElement('div');
+            actWrap.className = 'px-3.5 pb-3.5 pt-2 border-t border-slate-800/80 space-y-1.5';
+
+            if (p.available_on_plex && p.plex_url) {
+                const playA = document.createElement('a');
+                playA.href = p.plex_url;
+                playA.target = '_blank';
+                playA.rel = 'noopener noreferrer';
+                playA.className = 'w-full inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition';
+                playA.textContent = '▶ Watch on Plex';
+                actWrap.appendChild(playA);
+            } else if (hasOverseerr && !p.available_on_plex && !p.overseerr_requested) {
+                const reqBtn = document.createElement('button');
+                reqBtn.type = 'button';
+                reqBtn.className = 'w-full inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition';
+                reqBtn.textContent = p.media_type === 'show' ? '+ Request Season 1' : '+ Request on Overseerr';
+                reqBtn.addEventListener('click', () => {
+                    requestOverseerr(p.tmdb_id, p.media_type, reqBtn);
+                });
+                actWrap.appendChild(reqBtn);
+            }
+
+            const secRow = document.createElement('div');
+            secRow.className = 'flex items-center gap-1.5';
+
+            const detBtn = document.createElement('button');
+            detBtn.type = 'button';
+            detBtn.className = 'flex-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-[11px] font-bold border border-slate-700 transition';
+            detBtn.textContent = 'Details & Trailer';
+            detBtn.addEventListener('click', () => {
+                openMediaDetailModal(p.tmdb_id, p.media_type, p.match_score || '');
+            });
+
+            const wlBtn = document.createElement('button');
+            wlBtn.type = 'button';
+            let inWl = Boolean(p.is_in_watchlist);
+            const syncMiniWl = () => {
+                wlBtn.className = inWl
+                    ? 'px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[11px] font-bold transition'
+                    : 'px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold transition';
+                wlBtn.textContent = inWl ? '★ Saved' : '☆ Save';
+            };
+            syncMiniWl();
+            wlBtn.addEventListener('click', async () => {
+                const res = await toggleWatchlistItem({
+                    tmdb_id: p.tmdb_id,
+                    media_type: p.media_type,
+                    title: p.title,
+                    year: p.year,
+                    poster_url: p.poster_url,
+                    rating: p.rating,
+                    genres: p.genres || [],
+                    summary: p.summary || '',
+                }, null);
+                if (res !== null) {
+                    inWl = res;
+                    syncMiniWl();
+                }
+            });
+
+            secRow.appendChild(detBtn);
+            secRow.appendChild(wlBtn);
+            actWrap.appendChild(secRow);
+            card.appendChild(actWrap);
+            grid.appendChild(card);
+        });
+
+        container.replaceChildren(grid);
+    }
+
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
             closeMediaDetailModal();
+            closeTonightModal();
             closeHiddenModal();
         }
     });
 </script>
+
+<!-- Tonight Picker ("Surprise Me") Modal -->
+<div id="tonight-modal" onclick="if (event.target === this) closeTonightModal()" class="fixed inset-0 z-[104] hidden bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+            <div>
+                <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                    <span class="text-amber-400">★</span>
+                    <span>Pick for Tonight</span>
+                </h3>
+                <p class="text-xs text-slate-400">Cut through scroll fatigue — choose your vibe and deal 3 curated finalists.</p>
+            </div>
+            <button type="button" onclick="closeTonightModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition" aria-label="Close Tonight Picker">
+                <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+            </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-5 flex-1">
+            <!-- Controls -->
+            <div class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <!-- Source -->
+                    <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800">
+                        <button type="button" data-tonight-src="discover" onclick="setTonightSource('discover')" class="tonight-src-btn px-3 py-1.5 rounded-lg text-xs font-bold transition bg-amber-500 text-gray-950 shadow-sm">My Taste</button>
+                        <button type="button" data-tonight-src="together" onclick="setTonightSource('together')" class="tonight-src-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Watch Together</button>
+                        <button type="button" data-tonight-src="watchlist" onclick="setTonightSource('watchlist')" class="tonight-src-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Watchlist</button>
+                    </div>
+
+                    <!-- Format + On Plex -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <div class="inline-flex rounded-xl bg-slate-950/80 p-1 border border-slate-800">
+                            <button type="button" data-tonight-type="all" onclick="setTonightType('all')" class="tonight-type-btn px-3 py-1 rounded-lg text-xs font-bold transition bg-slate-800 text-white shadow-sm">Either</button>
+                            <button type="button" data-tonight-type="movie" onclick="setTonightType('movie')" class="tonight-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Movie</button>
+                            <button type="button" data-tonight-type="show" onclick="setTonightType('show')" class="tonight-type-btn px-3 py-1 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">TV Show</button>
+                        </div>
+                        <label class="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 cursor-pointer select-none">
+                            <input type="checkbox" id="tonight-available-only" class="w-3.5 h-3.5 rounded bg-slate-900 border-slate-600 text-emerald-500 focus:ring-emerald-500">
+                            <span class="text-xs font-semibold text-slate-200">On Plex only</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Mood Pills -->
+                <div class="space-y-1.5">
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Tonight’s Vibe</div>
+                    <div class="flex flex-wrap gap-2">
+                        {% for mkey, mcfg in (tonight_moods or {}).items() %}
+                        <button type="button" data-tonight-mood="{{ mkey }}" onclick="setTonightMood('{{ mkey }}')" class="tonight-mood-btn px-3 py-1.5 rounded-full text-xs font-semibold border transition {% if mkey == 'best' %}bg-amber-500/20 border-amber-500 text-amber-300 font-bold{% else %}bg-slate-800/80 border-slate-700 text-slate-300 hover:border-slate-500{% endif %}">
+                            {{ mcfg.label }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button type="button" id="tonight-spin-btn" onclick="spinTonightPicker(false)" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-gray-950 font-black text-xs shadow-lg shadow-amber-500/20 transition active:scale-95">
+                        Pick Tonight
+                    </button>
+                    <button type="button" id="tonight-reroll-btn" onclick="spinTonightPicker(true)" class="hidden px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition">
+                        ↻ Re-roll Fresh Picks
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Stage -->
+            <div id="tonight-results" class="border-t border-slate-800 pt-5">
+                <div class="text-xs text-slate-400 text-center py-6">Choose your vibe above and hit <strong class="text-amber-400">Pick Tonight</strong> to deal 3 finalists.</div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Title Detail & Trailer Modal -->
 <div id="media-detail-modal" onclick="if (event.target === this) closeMediaDetailModal()" class="fixed inset-0 z-[105] hidden bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">

@@ -22,7 +22,7 @@ TMDb-powered discovery cards with match scores, decision rationale tooltips, and
 ![Mindarr Recommendations](docs/screenshots/recommendations.png)
 
 ### Community & Server Leaderboard
-Server-wide benchmarks, RPG-style watcher levels/XP, achievement badges, and a podium leaderboard — with peer identities anonymized for privacy.
+Server-wide benchmarks, RPG-style watcher levels/XP, achievement badges, and a podium leaderboard across your Plex server community.
 
 ![Mindarr Community](docs/screenshots/community.png)
 

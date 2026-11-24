@@ -1,7 +1,6 @@
 import logging
 import json
 import time
-import hashlib
 import threading
 from typing import Optional, Dict, Any, List, Set, Tuple
 from datetime import datetime, timezone
@@ -34,11 +33,9 @@ class CommunityService:
         self,
         current_user: Dict[str, Any],
         force_refresh: bool = False,
-        reveal_names: bool = False,
     ) -> Dict[str, Any]:
         user_key = str(current_user.get("user_key", ""))
-        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
-        cache_key = f"community_{user_key}_{int(can_reveal)}"
+        cache_key = f"community_{user_key}"
 
         now = time.time()
         if not force_refresh:
@@ -176,12 +173,12 @@ class CommunityService:
         if tautulli.is_configured():
             data = self._build_from_tautulli(
                 current_user, seen_index, user_item_ids, local_user_stats, media_meta,
-                local_user_counts, local_user_metrics, reveal_names=can_reveal,
+                local_user_counts, local_user_metrics,
             )
         else:
             data = self._build_from_db(
                 current_user, seen_index, user_item_ids, local_user_stats, media_meta,
-                local_user_metrics, reveal_names=can_reveal,
+                local_user_metrics,
             )
 
         with _CACHE_LOCK:
@@ -197,7 +194,6 @@ class CommunityService:
         media_meta: Dict[str, Dict[str, Any]],
         local_user_counts: Optional[Dict[str, Dict[str, int]]] = None,
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
-        reveal_names: bool = False,
     ) -> Dict[str, Any]:
         """Aggregate community data using Tautulli's server-wide statistics and history."""
         local_user_counts = local_user_counts or {}
@@ -239,10 +235,20 @@ class CommunityService:
         # Sort by user viewers descending
         unseen_recommendations.sort(key=lambda x: (x.get("users_watched", 0), x.get("total_plays", 0)), reverse=True)
 
-        # 3. Anonymized Recent Activity Feed (Option B)
+        # 3. Recent Activity Feed
         recent_activity = []
         my_username = (current_user.get("username") or "").lower()
         my_email = (current_user.get("email") or "").lower()
+
+        all_users = get_all_users()
+        user_by_name: Dict[str, Dict[str, Any]] = {}
+        for u in all_users:
+            if u.get("username"):
+                user_by_name[u["username"].lower()] = u
+            if u.get("email"):
+                user_by_name[u["email"].lower()] = u
+            if u.get("title"):
+                user_by_name[u["title"].lower()] = u
 
         server_movie_plays = 0
         server_tv_plays = 0
@@ -292,8 +298,11 @@ class CommunityService:
                 m = (dur % 3600) // 60
                 dur_str = f"{h}h {m}m" if h > 0 else f"{m}m"
 
-            # Strictly anonymized label (Option B)
-            attribution = "Watched by You" if is_me else "Watched by a community member"
+            matched_u = user_by_name.get(row_user) or user_by_name.get(row_email)
+            actor_name = (
+                (matched_u.get("title") or matched_u.get("username")) if matched_u else None
+            ) or row.get("friendly_name") or row.get("user") or "Community Member"
+            attribution = "Watched by You" if is_me else f"Watched by {actor_name}"
 
             recent_activity.append({
                 "title": title,
@@ -325,18 +334,7 @@ class CommunityService:
 
         # Build candidate users from Tautulli top_users + local DB users
         tautulli_top_users = stat_groups.get("top_users", []) + stat_groups.get("popular_users", [])
-        all_users = get_all_users()
         user_key = str(current_user.get("user_key", ""))
-
-        # Index Mindarr users by lowercase username, email, title, and user_key
-        user_by_name: Dict[str, Dict[str, Any]] = {}
-        for u in all_users:
-            if u.get("username"):
-                user_by_name[u["username"].lower()] = u
-            if u.get("email"):
-                user_by_name[u["email"].lower()] = u
-            if u.get("title"):
-                user_by_name[u["title"].lower()] = u
 
         candidate_map: Dict[str, Dict[str, Any]] = {}
 
@@ -435,12 +433,10 @@ class CommunityService:
                 }
 
         candidate_users = list(candidate_map.values())
-        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
             overlap_pct=overlap_pct,
-            reveal_names=can_reveal,
         )
 
         is_single_user = total_community_members <= 1
@@ -449,7 +445,6 @@ class CommunityService:
             "is_single_user": is_single_user,
             "total_community_members": total_community_members,
             "source": "tautulli",
-            "leaderboard_deanonymized": can_reveal,
             "benchmarks": {
                 "user_plays": user_events,
                 "user_movie_pct": user_movie_pct,
@@ -476,7 +471,6 @@ class CommunityService:
         local_user_stats: Dict[str, Any],
         media_meta: Dict[str, Dict[str, Any]],
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
-        reveal_names: bool = False,
     ) -> Dict[str, Any]:
         """Aggregate community data purely from Mindarr's local database (fallback/offline mode)."""
         all_users = get_all_users()
@@ -553,22 +547,29 @@ class CommunityService:
         all_popular = popular_movies + popular_tv
         unseen_recommendations = [item for item in all_popular if not item["seen_by_user"]]
 
+        user_name_by_key = {
+            str(u.get("user_key") or ""): (u.get("title") or u.get("username") or "Community Member")
+            for u in all_users
+            if u.get("user_key")
+        }
         recent_activity = []
         for ev in recent_events:
             ev_d = dict(ev)
-            is_me = str(ev_d.get("user_key", "")) == user_key
+            ev_uk = str(ev_d.get("user_key", ""))
+            is_me = ev_uk == user_key
             title = ev_d.get("title") or "Unknown"
             dur = int(ev_d.get("duration_watched", 0) or 0)
             if dur > 10000:
                 dur = dur // 1000
             dur_str = f"{dur // 60}m" if dur > 0 else ""
+            actor_name = user_name_by_key.get(ev_uk, "Community Member")
             recent_activity.append({
                 "title": title,
                 "media_type": ev_d.get("media_type", "movie"),
                 "time_str": (ev_d.get("viewed_at") or "")[:16].replace("T", " "),
                 "duration_formatted": dur_str,
                 "is_me": is_me,
-                "attribution": "Watched by You" if is_me else "Watched by a community member",
+                "attribution": "Watched by You" if is_me else f"Watched by {actor_name}",
                 "seen_by_user": is_me or (ev_d.get("item_id") in user_item_ids),
             })
 
@@ -616,19 +617,16 @@ class CommunityService:
                 "is_registered": True,
             })
 
-        can_reveal = bool(current_user.get("is_admin")) and bool(reveal_names)
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
             overlap_pct=overlap_pct,
-            reveal_names=can_reveal,
         )
 
         return {
             "is_single_user": total_community_members <= 1,
             "total_community_members": total_community_members,
             "source": "db",
-            "leaderboard_deanonymized": can_reveal,
             "benchmarks": {
                 "user_plays": user_events,
                 "user_movie_pct": user_movie_pct,
@@ -719,22 +717,6 @@ class CommunityService:
         if hrs > 0:
             return f"{hrs}h {mins}m" if mins > 0 else f"{hrs}h"
         return f"{mins}m" if mins > 0 else f"{seconds}s"
-
-    @staticmethod
-    def _generate_anonymized_name(seed_key: str) -> str:
-        """Generate a consistent, realistic pseudonym using Faker seeded by user identity."""
-        try:
-            from faker import Faker
-            f = Faker()
-            # Derive a deterministic integer seed from SHA-256 of the user key
-            seed_int = int(hashlib.sha256(str(seed_key).encode("utf-8")).hexdigest()[:8], 16)
-            f.seed_instance(seed_int)
-            first = f.first_name()
-            last_initial = f.last_name()[:1]
-            return f"{first} {last_initial}."
-        except Exception:
-            clean_seed = abs(hash(str(seed_key))) % 1000
-            return f"Community Member #{clean_seed}"
 
     @staticmethod
     def _compute_level_and_xp(plays: int, duration_seconds: int) -> Dict[str, Any]:
@@ -870,7 +852,6 @@ class CommunityService:
         current_user: Dict[str, Any],
         candidate_users: List[Dict[str, Any]],
         overlap_pct: int = 0,
-        reveal_names: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
         """Construct server-wide leaderboard, rank ordering, badges, and user head-to-head comparison."""
         from collections import Counter
@@ -900,36 +881,14 @@ class CommunityService:
                 "is_registered": True,
             })
 
-        is_admin = bool(current_user.get("is_admin"))
-        can_reveal = is_admin and bool(reveal_names)
-
         for c in candidate_users:
-            if not c.get("is_me"):
-                raw_u = c.get("username")
-                raw_d = c.get("display_name")
-                if can_reveal:
-                    c["display_name"] = raw_d or raw_u
-                    c["username"] = raw_u or raw_d
-                    c["is_anonymized"] = False
-                    c["real_username"] = raw_u or raw_d
-                    c["real_display_name"] = raw_d or raw_u
-                else:
-                    anon_name = self._generate_anonymized_name(c.get("user_key") or raw_u or "user")
-                    c["display_name"] = anon_name
-                    c["username"] = anon_name
-                    c["thumb"] = None  # Privacy: mask avatar photos of other users
-                    c["is_anonymized"] = True
-                    # Expose real username only if requesting viewer is server admin
-                    if is_admin:
-                        c["real_username"] = raw_u or raw_d
-                        c["real_display_name"] = raw_d or raw_u
-                    else:
-                        c["real_username"] = None
-                        c["real_display_name"] = None
-            else:
-                c["is_anonymized"] = False
-                c["real_username"] = c.get("username")
-                c["real_display_name"] = c.get("display_name")
+            raw_u = c.get("username")
+            raw_d = c.get("display_name")
+            c["display_name"] = raw_d or raw_u
+            c["username"] = raw_u or raw_d
+            c["is_anonymized"] = False
+            c["real_username"] = raw_u or raw_d
+            c["real_display_name"] = raw_d or raw_u
 
             plays = int(c.get("total_plays", 0) or 0)
             dur_sec = int(c.get("total_duration_seconds", 0) or 0)

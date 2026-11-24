@@ -95,21 +95,6 @@ def test_format_duration():
     assert service._format_duration(7200) == "2h"
 
 
-def test_deterministic_faker_anonymization():
-    service = CommunityService()
-
-    # Same seed must yield identical pseudonym
-    name1 = service._generate_anonymized_name("user_test_abc")
-    name2 = service._generate_anonymized_name("user_test_abc")
-    assert name1 == name2
-    assert len(name1.split()) == 2
-    assert name1.endswith(".")
-
-    # Different seeds should yield different pseudonyms
-    name3 = service._generate_anonymized_name("user_test_xyz")
-    assert name1 != name3
-
-
 def test_build_leaderboard_and_comparison_multiple_users():
     service = CommunityService()
     current_user = {
@@ -153,15 +138,14 @@ def test_build_leaderboard_and_comparison_multiple_users():
         overlap_pct=60,
     )
 
-    # Candidate 1 (Alice) is #1 but anonymized with Faker
+    # Candidate 1 (Alice) is #1 and shows authentic identity & avatar
     assert len(leaderboard) == 2
     assert leaderboard[0]["rank"] == 1
     assert leaderboard[0]["is_me"] is False
-    assert leaderboard[0]["is_anonymized"] is True
-    # Alice's real username/display_name and thumb must be masked
-    assert leaderboard[0]["username"] != "alice"
-    assert leaderboard[0]["display_name"] != "Alice"
-    assert leaderboard[0]["thumb"] is None
+    assert leaderboard[0]["is_anonymized"] is False
+    assert leaderboard[0]["username"] == "alice"
+    assert leaderboard[0]["display_name"] == "Alice"
+    assert leaderboard[0]["thumb"] == "https://example.com/alice.jpg"
 
     # Candidate 2 (Bob) is #2 and retains authentic identity
     assert leaderboard[1]["rank"] == 2
@@ -174,17 +158,15 @@ def test_build_leaderboard_and_comparison_multiple_users():
     # Comparison metrics
     assert comparison["user_rank"] == 2
     assert comparison["is_leader"] is False
-    assert comparison["leader"]["display_name"] == leaderboard[0]["display_name"]
+    assert comparison["leader"]["display_name"] == "Alice"
     assert comparison["plays_behind"] == 40
     assert comparison["next_rank_gap"] == 41
-    # Rank message mentions the leader's pseudonym, NOT their real name
-    assert "Alice" not in comparison["rank_message"]
-    assert leaderboard[0]["display_name"] in comparison["rank_message"]
+    assert "Alice" in comparison["rank_message"]
     assert len(comparison["unlocked_badges"]) > 0
     assert len(comparison["locked_badges"]) > 0
 
     # Podium
-    assert podium["first"]["display_name"] == leaderboard[0]["display_name"]
+    assert podium["first"]["display_name"] == "Alice"
     assert podium["second"]["display_name"] == "Bob"
     assert podium["third"] is None
 
@@ -309,11 +291,11 @@ def test_build_from_tautulli_integrates_top_users():
         comparison = data["user_comparison"]
 
         assert len(leaderboard) == 2
-        # Stream King #1 is anonymized with Faker
+        # Stream King #1 shows authentic display name
         assert leaderboard[0]["rank"] == 1
         assert leaderboard[0]["is_me"] is False
-        assert leaderboard[0]["is_anonymized"] is True
-        assert leaderboard[0]["display_name"] != "Stream King"
+        assert leaderboard[0]["is_anonymized"] is False
+        assert leaderboard[0]["display_name"] == "Stream King"
         # Ashley #2 retains authentic display name
         assert leaderboard[1]["username"] == "ash"
         assert leaderboard[1]["display_name"] == "Ashley"
@@ -322,7 +304,7 @@ def test_build_from_tautulli_integrates_top_users():
         assert leaderboard[1]["is_anonymized"] is False
 
         assert comparison["user_rank"] == 2
-        assert comparison["leader"]["display_name"] == leaderboard[0]["display_name"]
+        assert comparison["leader"]["display_name"] == "Stream King"
 
 
 def test_web_community_leaderboard_rendering():
@@ -479,8 +461,8 @@ def test_web_community_leaderboard_rendering():
             assert "You vs Server Leader" in text
             assert "Plays" in text
             assert "Watch Time" in text
-            assert "Why are other usernames anonymized?" in text
-            assert "Faker Pseudonyms Active" in text
+            assert "Why are other usernames anonymized?" not in text
+            assert "Faker Pseudonyms Active" not in text
 
 
 def test_community_cache_ttl_is_per_user(monkeypatch):
@@ -515,122 +497,10 @@ def test_community_cache_ttl_is_per_user(monkeypatch):
     comm_mod._CACHE.clear()
 
 
-def test_admin_real_username_tooltip_visibility():
-    service = CommunityService()
-    admin_user = {
-        "user_key": "u_admin",
-        "username": "admin_ash",
-        "title": "Admin Ashley",
-        "is_admin": True,
-        "onboarded_at": "2024-01-01T00:00:00",
-    }
-    non_admin_user = {
-        "user_key": "u_regular",
-        "username": "regular_joe",
-        "title": "Joe",
-        "is_admin": False,
-    }
-    candidates = [
-        {
-            "user_key": "u_other",
-            "username": "secret_real_name_99",
-            "display_name": "Secret Real Name",
-            "is_me": False,
-            "total_plays": 50,
-            "total_duration_seconds": 100000,
-            "movie_count": 20,
-            "show_count": 30,
-            "genres": ["Action"],
-            "is_registered": True,
-        },
-        {
-            "user_key": "u_admin",
-            "username": "admin_ash",
-            "display_name": "Admin Ashley",
-            "is_me": True,
-            "total_plays": 20,
-            "total_duration_seconds": 40000,
-            "movie_count": 10,
-            "show_count": 10,
-            "genres": ["Sci-Fi"],
-            "is_registered": True,
-        },
-    ]
-
-    # 1. Admin builds leaderboard: real_username is present
-    lb_admin, _, _ = service._build_leaderboard_and_comparison(
-        current_user=admin_user,
-        candidate_users=candidates.copy(),
-    )
-    other_for_admin = next(c for c in lb_admin if not c["is_me"])
-    assert other_for_admin["real_username"] == "secret_real_name_99"
-
-    # 2. Non-admin builds leaderboard: real_username is None
-    candidates_copy = [
-        dict(candidates[0]),
-        {
-            "user_key": "u_regular",
-            "username": "regular_joe",
-            "display_name": "Joe",
-            "is_me": True,
-            "total_plays": 20,
-            "total_duration_seconds": 40000,
-            "movie_count": 10,
-            "show_count": 10,
-            "genres": ["Sci-Fi"],
-            "is_registered": True,
-        },
-    ]
-    lb_non_admin, _, _ = service._build_leaderboard_and_comparison(
-        current_user=non_admin_user,
-        candidate_users=candidates_copy,
-    )
-    other_for_non_admin = next(c for c in lb_non_admin if not c["is_me"])
-    assert other_for_non_admin["real_username"] is None
-
-    # 3. Web rendering: Admin sees tooltip in HTML, Non-admin does NOT
-    with patch("plex_recommender.web.app.get_current_user", return_value=admin_user):
-        with patch.object(community_service, "get_community_data") as mock_get:
-            mock_get.return_value = {
-                "leaderboard": lb_admin,
-                "user_comparison": {
-                    "user_rank": 2,
-                    "total_watchers": 2,
-                    "percentile": 50,
-                    "is_leader": False,
-                    "leader": other_for_admin,
-                    "current_user": lb_admin[1],
-                    "plays_behind": 30,
-                    "hours_behind": 16.7,
-                    "plays_pct_of_leader": 40,
-                    "hours_pct_of_leader": 40,
-                    "next_rank_gap": 31,
-                    "next_rank_user": other_for_admin["display_name"],
-                    "rank_message": f"Behind {other_for_admin['display_name']}",
-                    "unlocked_badges": [],
-                    "locked_badges": [],
-                },
-                "podium": {"first": other_for_admin, "second": lb_admin[1], "third": None},
-                "benchmarks": {"user_plays": 20, "user_movie_pct": 50, "user_tv_pct": 50, "community_movie_pct": 50, "community_tv_pct": 50, "overlap_count": 0, "overlap_pct": 0},
-                "popular_movies": [],
-                "popular_tv": [],
-                "unseen_recommendations": [],
-                "recent_activity": [],
-                "is_single_user": False,
-                "total_community_members": 2,
-            }
-            client = TestClient(app)
-            resp = client.get("/community/")
-            assert resp.status_code == 200
-            # Admin sees tooltip with real username
-            assert 'title="Real username: @secret_real_name_99"' in resp.text
-            assert "Admin View:" in resp.text
-
-
-def test_admin_can_deanonymize_leaderboard_while_non_admin_stays_anonymized():
+def test_community_shows_real_names_and_activity_for_all_users():
     from plex_recommender.db.media import upsert_media_item
     from plex_recommender.db.users import create_or_update_user, mark_onboarded
-    from plex_recommender.db.watch import upsert_user_media
+    from plex_recommender.db.watch import upsert_user_media, record_watch_event
     import base64, json, itsdangerous
 
     community_service.clear_cache()
@@ -640,7 +510,7 @@ def test_admin_can_deanonymize_leaderboard_while_non_admin_stays_anonymized():
     })
     mark_onboarded("adm_1")
     create_or_update_user({
-        "user_key": "peer_2", "username": "secret_plex_peer", "title": "Real Peer Name",
+        "user_key": "peer_2", "username": "plex_peer", "title": "Real Peer Name",
         "email": "peer@example.com", "thumb": "https://img.example/peer.jpg", "is_admin": False,
     })
     mark_onboarded("peer_2")
@@ -648,6 +518,10 @@ def test_admin_can_deanonymize_leaderboard_while_non_admin_stays_anonymized():
     upsert_media_item({"item_id": "m_lb", "media_type": "movie", "title": "Hit Film", "year": 2024, "genres": ["Action"]})
     upsert_user_media("peer_2", {"item_id": "m_lb", "view_count": 25})
     upsert_user_media("adm_1", {"item_id": "m_lb", "view_count": 5})
+    record_watch_event({
+        "user_key": "adm_1", "item_id": "m_lb", "title": "Hit Film",
+        "media_type": "movie", "viewed_at": "2026-01-10T20:00:00", "source": "plex",
+    })
 
     def _cookie(uk):
         signer = itsdangerous.TimestampSigner(settings.session_secret)
@@ -655,32 +529,18 @@ def test_admin_can_deanonymize_leaderboard_while_non_admin_stays_anonymized():
 
     with patch("plex_recommender.discovery.tautulli.tautulli.is_configured", return_value=False):
         with TestClient(app) as client:
-            # Admin default view is anonymized
-            client.cookies.set("session", _cookie("adm_1"))
-            r_anon = client.get("/community/")
-            assert r_anon.status_code == 200
-            assert "Reveal Plex Users" in r_anon.text
-            assert "Faker Pseudonyms Active" in r_anon.text
-
-            # Admin toggles deanonymization ON
-            r_toggle = client.post("/api/community/deanonymize", data={"enabled": "true"}, follow_redirects=False)
-            assert r_toggle.status_code == 303
-            assert r_toggle.headers["location"] == "/community/"
-
-            r_real = client.get("/community/")
-            assert r_real.status_code == 200
-            assert "Real Peer Name" in r_real.text
-            assert "Anonymize Users" in r_real.text
-            assert "Admin View: Real Plex Names Active" in r_real.text
-            assert "https://img.example/peer.jpg" in r_real.text
-
-            # Non-admin user NEVER sees real names/avatars even when admin toggle is ON
             client.cookies.set("session", _cookie("peer_2"))
-            r_peer = client.get("/community/")
-            assert r_peer.status_code == 200
-            assert "Admin Owner" not in r_peer.text
-            assert "admin_owner" not in r_peer.text
-            assert "Reveal Plex Users" not in r_peer.text
-            assert "Faker Pseudonyms Active" in r_peer.text
+            resp = client.get("/community/")
+            assert resp.status_code == 200
+            assert "Admin Owner" in resp.text
+            assert "Watched by Admin Owner" in resp.text
+            assert "Why are other usernames anonymized?" not in resp.text
+            assert "Reveal Plex Users" not in resp.text
+
+            client.cookies.set("session", _cookie("adm_1"))
+            resp_adm = client.get("/community/")
+            assert resp_adm.status_code == 200
+            assert "Real Peer Name" in resp_adm.text
+            assert "https://img.example/peer.jpg" in resp_adm.text
 
     community_service.clear_cache()

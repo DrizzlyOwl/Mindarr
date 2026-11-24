@@ -35,7 +35,7 @@ movies/shows via TMDb, with optional 1-click Overseerr requests.
 - `plex_recommender/analyzer.py` — `TasteAnalyzer` (genre/creator/decade scoring, recency
   decay, narrative `summary` with cited metrics + data-source provenance)
 - `plex_recommender/recommender.py` — `ContentRecommender` (TMDb discovery, seen-exclusion, cache)
-- `plex_recommender/community.py` — anonymized cross-user leaderboard/comparison/badges,
+- `plex_recommender/community.py` — cross-user leaderboard/comparison/badges,
   sourced from Tautulli when configured or the local DB otherwise (`/community` route)
 - `plex_recommender/poster_cache.py` — local on-disk TMDb poster image caching with TTL sweep
 - `plex_recommender/health.py` — persisted integration health status (TMDb/Overseerr/Tautulli)

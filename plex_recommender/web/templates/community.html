@@ -103,20 +103,6 @@
                 <p class="text-xs text-slate-400 mt-0.5">Rankings, watch milestones, and achievement badges across your Plex server community.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                {% if current_user and current_user.is_admin %}
-                <form method="post" action="/api/community/deanonymize" class="inline">
-                    <input type="hidden" name="enabled" value="{{ 'false' if leaderboard_deanonymized else 'true' }}">
-                    <button type="submit" class="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl border text-xs font-semibold transition {% if leaderboard_deanonymized %}bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/20{% else %}bg-slate-900 border-slate-700 text-slate-300 hover:text-amber-300 hover:border-amber-400{% endif %}">
-                        {% if leaderboard_deanonymized %}
-                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>
-                        <span>Anonymize Users</span>
-                        {% else %}
-                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        <span>Reveal Plex Users</span>
-                        {% endif %}
-                    </button>
-                </form>
-                {% endif %}
                 {% if community.user_comparison %}
                 <span class="text-xs px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-medium">
                     Your Rank: <strong class="text-amber-400">#{{ community.user_comparison.user_rank }}</strong> of {{ community.user_comparison.total_watchers }}
@@ -124,58 +110,6 @@
                 {% endif %}
             </div>
         </div>
-
-        <!-- Privacy & Anonymization Annotation -->
-        <details class="group bg-slate-950/60 border border-slate-800/80 rounded-xl px-4 py-3 transition hover:border-slate-700">
-            <summary class="flex items-center justify-between cursor-pointer list-none text-xs font-semibold text-slate-400 hover:text-slate-200 transition select-none">
-                <span class="inline-flex items-center space-x-2">
-                    <svg class="w-3.5 h-3.5 fill-current text-cyan-400 transition-transform group-open:rotate-90 shrink-0" viewBox="0 0 20 20">
-                        <path fill-rule="evenodd" d="M7.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L10.586 10 7.293 6.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                    </svg>
-                    <span class="text-slate-300">Why are other usernames anonymized?</span>
-                    {% if current_user and current_user.is_admin and leaderboard_deanonymized %}
-                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono">Admin View: Real Plex Names Active</span>
-                    {% else %}
-                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-mono">Faker Pseudonyms Active</span>
-                    {% endif %}
-                </span>
-                <span class="text-[11px] text-slate-500 group-open:hidden">Learn more &darr;</span>
-                <span class="text-[11px] text-slate-500 hidden group-open:inline">Collapse &uarr;</span>
-            </summary>
-            <div class="mt-3 pt-3 border-t border-slate-800/80 text-xs text-slate-400 space-y-2 leading-relaxed">
-                <p>
-                    To protect personal viewing privacy across household members and shared Plex users, all peer viewer names on this leaderboard are deterministically generated pseudonyms powered by <strong class="text-slate-200 font-semibold">Faker</strong>.
-                </p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
-                        <div class="text-[11px] font-semibold text-amber-400 flex items-center space-x-1.5">
-                            <span>👤 Your Identity</span>
-                        </div>
-                        <p class="text-[11px] text-slate-400 mt-1">
-                            You always see your authentic Plex display name, real avatar, and personal stats with the <span class="text-amber-400 font-bold">YOU</span> badge.
-                        </p>
-                    </div>
-                    <div class="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
-                        <div class="text-[11px] font-semibold text-cyan-400 flex items-center space-x-1.5">
-                            <span>🔒 Authentic Server Stats</span>
-                        </div>
-                        <p class="text-[11px] text-slate-400 mt-1">
-                            All stream counts, playback hours, XP levels, rankings, and badges are 100% genuine server metrics. Only identities are masked.
-                        </p>
-                    </div>
-                </div>
-                {% if current_user and current_user.is_admin %}
-                <div class="mt-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400 flex items-center space-x-1.5">
-                    <span class="text-amber-400 font-bold">Admin View:</span>
-                    {% if leaderboard_deanonymized %}
-                    <span>Real Plex usernames and avatars are currently shown for your admin view. Non-admin users still see Faker pseudonyms.</span>
-                    {% else %}
-                    <span>Real Plex usernames are revealed in tooltips next to the fake names, or click <strong>Reveal Plex Users</strong> above to deanonymize the leaderboard for your admin view.</span>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
-        </details>
 
         <!-- Head-to-Head Comparison & Level Card -->
         {% if community.user_comparison %}
@@ -226,14 +160,8 @@
                 <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 lg:w-96 shrink-0 space-y-3">
                     <div class="flex items-center justify-between text-xs text-slate-400 font-semibold uppercase tracking-wider pb-1 border-b border-slate-800/60">
                         <span>You vs Server Leader</span>
-                        <span class="text-amber-400 font-normal normal-case inline-flex items-center space-x-1" {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}title="Real username: @{{ community.user_comparison.leader.real_username }}"{% endif %}>
-                            <span>{{ community.user_comparison.leader.display_name or community.user_comparison.leader.username }}</span>
-                            {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.user_comparison.leader.real_username and not community.user_comparison.leader.is_me %}
-                            <button type="button" onclick="togglePopover('username-popover-leader')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer text-slate-400 hover:text-amber-300" aria-label="Show real username">
-                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                <span id="username-popover-leader" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.user_comparison.leader.real_username }}</span>
-                            </button>
-                            {% endif %}
+                        <span class="text-amber-400 font-normal normal-case">
+                            {{ community.user_comparison.leader.display_name or community.user_comparison.leader.username }}
                         </span>
                     </div>
 
@@ -328,13 +256,7 @@
                     {% endif %}
                 </div>
                 <div class="flex items-center space-x-1.5 mt-3">
-                    <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.second.real_username and not community.podium.second.is_me %}title="Real username: @{{ community.podium.second.real_username }}"{% endif %}>{{ community.podium.second.display_name or community.podium.second.username }}</h4>
-                    {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.second.real_username and not community.podium.second.is_me %}
-                    <button type="button" onclick="togglePopover('username-popover-podium-2')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
-                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        <span id="username-popover-podium-2" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.second.real_username }}</span>
-                    </button>
-                    {% endif %}
+                    <h4 class="font-bold text-white text-base">{{ community.podium.second.display_name or community.podium.second.username }}</h4>
                 </div>
                 <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.second.gamification.title }}</span>
                 <div class="mt-3 flex items-center space-x-3 text-xs">
@@ -369,13 +291,7 @@
                     {% endif %}
                 </div>
                 <div class="flex items-center space-x-1.5 mt-3">
-                    <h4 class="font-extrabold text-white text-lg" {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.first.real_username and not community.podium.first.is_me %}title="Real username: @{{ community.podium.first.real_username }}"{% endif %}>{{ community.podium.first.display_name or community.podium.first.username }}</h4>
-                    {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.first.real_username and not community.podium.first.is_me %}
-                    <button type="button" onclick="togglePopover('username-popover-podium-1')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
-                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        <span id="username-popover-podium-1" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.first.real_username }}</span>
-                    </button>
-                    {% endif %}
+                    <h4 class="font-extrabold text-white text-lg">{{ community.podium.first.display_name or community.podium.first.username }}</h4>
                 </div>
                 <span class="text-xs text-amber-400 font-semibold">{{ community.podium.first.gamification.title }}</span>
                 <div class="mt-3 flex items-center space-x-3 text-xs">
@@ -410,13 +326,7 @@
                     {% endif %}
                 </div>
                 <div class="flex items-center space-x-1.5 mt-3">
-                    <h4 class="font-bold text-white text-base" {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.third.real_username and not community.podium.third.is_me %}title="Real username: @{{ community.podium.third.real_username }}"{% endif %}>{{ community.podium.third.display_name or community.podium.third.username }}</h4>
-                    {% if current_user and current_user.is_admin and not leaderboard_deanonymized and community.podium.third.real_username and not community.podium.third.is_me %}
-                    <button type="button" onclick="togglePopover('username-popover-podium-3')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
-                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        <span id="username-popover-podium-3" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ community.podium.third.real_username }}</span>
-                    </button>
-                    {% endif %}
+                    <h4 class="font-bold text-white text-base">{{ community.podium.third.display_name or community.podium.third.username }}</h4>
                 </div>
                 <span class="text-[11px] text-slate-400 font-medium">{{ community.podium.third.gamification.title }}</span>
                 <div class="mt-3 flex items-center space-x-3 text-xs">
@@ -488,15 +398,9 @@
                                     </div>
                                     <div class="min-w-0">
                                         <div class="flex items-center space-x-2">
-                                            <span class="font-bold text-white truncate max-w-[150px] sm:max-w-xs" {% if current_user and current_user.is_admin and not leaderboard_deanonymized and user_row.real_username and not user_row.is_me %}title="Real username: @{{ user_row.real_username }}"{% endif %}>{{ user_row.display_name or user_row.username }}</span>
+                                            <span class="font-bold text-white truncate max-w-[150px] sm:max-w-xs">{{ user_row.display_name or user_row.username }}</span>
                                             {% if user_row.is_me %}
                                             <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 uppercase tracking-wider">You</span>
-                                            {% endif %}
-                                            {% if current_user and current_user.is_admin and not leaderboard_deanonymized and user_row.real_username and not user_row.is_me %}
-                                            <button type="button" onclick="togglePopover('username-popover-row-{{ user_row.rank }}')" aria-expanded="false" aria-haspopup="true" class="relative cursor-pointer inline-flex items-center text-slate-400 hover:text-amber-400 transition" aria-label="Show real username">
-                                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                                <span id="username-popover-row-{{ user_row.rank }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 top-6 z-50 whitespace-nowrap bg-[#0f172a] border border-slate-700 text-slate-200 text-xs font-medium rounded-lg px-3 py-1.5 shadow-2xl">Real username: @{{ user_row.real_username }}</span>
-                                            </button>
                                             {% endif %}
                                         </div>
                                         <div class="text-[11px] text-slate-400 truncate">{{ user_row.gamification.title }}</div>
@@ -738,12 +642,12 @@
         </div>
     </div>
 
-    <!-- Recent Community Activity Feed (Option B: Anonymized) -->
+    <!-- Recent Community Activity Feed -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
         <div class="flex items-center justify-between border-b border-slate-800 pb-4">
             <div>
                 <h3 class="text-base font-bold text-white">Recent Server Playback Stream</h3>
-                <p class="text-xs text-slate-400 mt-0.5">Chronological feed of what has been playing across the server (anonymized for member privacy).</p>
+                <p class="text-xs text-slate-400 mt-0.5">Chronological feed of what has been playing across the server.</p>
             </div>
             <span class="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>

@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -49,7 +51,7 @@ from plex_recommender.auth import (
 )
 from plex_recommender.sync import sync_plex_data, sync_user_history
 from plex_recommender.analyzer import analyzer
-from plex_recommender.recommender import recommender
+from plex_recommender.recommender import recommender, TONIGHT_MOODS
 from plex_recommender.community import community_service
 from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categories, tmdb
 from plex_recommender.discovery.overseerr import overseerr
@@ -501,15 +503,13 @@ def community_page(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    reveal_names = bool(user.get("is_admin")) and (get_setting("community_deanonymize") == "true")
-    community_data = community_service.get_community_data(user, reveal_names=reveal_names)
+    community_data = community_service.get_community_data(user)
 
     return templates.TemplateResponse(
         request=request,
         name="community.html",
         context={
             "community": community_data,
-            "leaderboard_deanonymized": reveal_names,
             "settings": settings,
             "sync_state": sync_state,
             "current_user": user,
@@ -519,30 +519,6 @@ def community_page(request: Request):
             "show_first_visit_tour": needs_first_visit_tour(user),
         }
     )
-
-
-@app.post("/api/community/deanonymize")
-def api_toggle_community_deanonymize(request: Request, enabled: Optional[str] = Form(None)):
-    """Admin-only toggle to reveal or mask real Plex usernames on the leaderboard."""
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    if not user.get("is_admin"):
-        return JSONResponse({"error": "forbidden"}, status_code=403)
-
-    if enabled is None:
-        new_val = get_setting("community_deanonymize") != "true"
-    else:
-        new_val = enabled.strip().lower() in ("1", "true", "yes", "on")
-
-    set_setting("community_deanonymize", "true" if new_val else "false")
-    community_service.clear_cache()
-    logger.info(
-        "Admin '%s' %s community leaderboard deanonymization.",
-        user.get("username") or user.get("user_key"),
-        "enabled" if new_val else "disabled",
-    )
-    return RedirectResponse(url="/community/", status_code=303)
 
 @app.get("/sources", response_class=HTMLResponse)
 @app.get("/sources/", response_class=HTMLResponse)
@@ -627,6 +603,10 @@ def recommendations_page(
     elif not profile.get("has_data"):
         error_msg = "No watch history available for your account. Please sync your Plex watch history first."
 
+    selected_view = view if view in ("discover", "watchlist", "together") else "discover"
+    together_peers = _list_together_peers(user)
+    my_watch_code = _user_watch_code(user["user_key"])
+
     return templates.TemplateResponse(
         request=request,
         name="recommendations.html",
@@ -650,7 +630,10 @@ def recommendations_page(
             "force_refresh": force_refresh,
             "user_votes": get_user_votes(user["user_key"]),
             "watchlist_count": get_user_watchlist_count(user["user_key"]),
-            "selected_view": "watchlist" if view == "watchlist" else "discover",
+            "selected_view": selected_view,
+            "together_peers": together_peers,
+            "my_watch_code": my_watch_code,
+            "tonight_moods": TONIGHT_MOODS,
             "first_name": first_name_of(user),
             "show_first_visit_tour": needs_first_visit_tour(user),
         }
@@ -932,6 +915,77 @@ def api_get_dismissed_recommendations(request: Request):
     return JSONResponse({"success": True, "dismissals": dismissals, "votes": votes})
 
 
+def _user_watch_code(user_key: str) -> str:
+    """Return a stable, non-guessable Watch Code (MIND-XXXXXXXX) for a user."""
+    digest = hmac.new(
+        settings.session_secret.encode("utf-8"),
+        f"watch-code:{user_key}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:8].upper()
+    return f"MIND-{digest[:4]}-{digest[4:]}"
+
+
+def _normalize_watch_code(raw: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (raw or "").upper())
+    if cleaned.startswith("MIND"):
+        cleaned = cleaned[4:]
+    return cleaned[:8]
+
+
+def _peer_display_name(current_user: dict, peer_user: dict) -> tuple[str, bool]:
+    """Return (display_name, is_anonymized) using real Plex user names."""
+    name = peer_user.get("title") or peer_user.get("username") or "Community Member"
+    return name, False
+
+
+def _list_together_peers(current_user: dict) -> list[dict]:
+    """Return peers with watch history eligible for Watch Together."""
+    my_uk = str(current_user.get("user_key") or "")
+    peers = []
+    for u in get_all_users():
+        uk = str(u.get("user_key") or "")
+        if not uk or uk == my_uk:
+            continue
+        if not has_user_history(uk):
+            continue
+        dname, is_anon = _peer_display_name(current_user, u)
+        peers.append({
+            "user_key": uk,
+            "display_name": dname,
+            "is_anonymized": is_anon,
+        })
+    return peers
+
+
+def _resolve_peer_keys(current_user: dict, peers_raw: Optional[str]) -> list[str]:
+    """Validate and resolve comma-separated peer user_keys (or watch codes) into user_keys including current user."""
+    my_uk = str(current_user.get("user_key") or "")
+    resolved = [my_uk]
+    if not peers_raw:
+        return resolved
+
+    all_users = get_all_users()
+    by_uk = {str(u.get("user_key") or ""): u for u in all_users if u.get("user_key")}
+    by_code = {_normalize_watch_code(_user_watch_code(uk)): uk for uk in by_uk}
+
+    for token in peers_raw.split(","):
+        tok = token.strip()
+        if not tok:
+            continue
+        target_uk = None
+        if tok in by_uk:
+            target_uk = tok
+        else:
+            norm = _normalize_watch_code(tok)
+            if norm in by_code:
+                target_uk = by_code[norm]
+        if target_uk and target_uk not in resolved:
+            resolved.append(target_uk)
+        if len(resolved) >= 6:
+            break
+    return resolved
+
+
 @app.get("/api/recommendations/pool-stats")
 def api_recommendations_pool_stats(request: Request):
     user = get_current_user(request)
@@ -939,6 +993,237 @@ def api_recommendations_pool_stats(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     counts = get_user_action_counts(user["user_key"])
     return JSONResponse({"success": True, **counts})
+
+
+@app.get("/api/together/peers", response_class=JSONResponse)
+def api_together_peers(request: Request):
+    """Return Watch Together eligible peers (anonymized for non-admins) and current user's Watch Code."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return JSONResponse({
+        "success": True,
+        "my_watch_code": _user_watch_code(user["user_key"]),
+        "peers": _list_together_peers(user),
+    })
+
+
+@app.post("/api/together/resolve-code", response_class=JSONResponse)
+def api_together_resolve_code(
+    request: Request,
+    code: str = Form(...),
+):
+    """Resolve a friend's Watch Code (MIND-XXXX-XXXX) into a blendable peer entry."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    target_norm = _normalize_watch_code(code)
+    if len(target_norm) != 8:
+        return JSONResponse({"success": False, "error": "Enter a valid 8-character Watch Code (e.g. MIND-XXXX-XXXX)."}, status_code=400)
+
+    my_uk = str(user.get("user_key") or "")
+    matched = None
+    for u in get_all_users():
+        uk = str(u.get("user_key") or "")
+        if not uk:
+            continue
+        u_norm = _normalize_watch_code(_user_watch_code(uk))
+        if hmac.compare_digest(target_norm, u_norm):
+            matched = u
+            break
+
+    if not matched:
+        return JSONResponse({"success": False, "error": "Watch Code not found on this server."}, status_code=404)
+
+    uk = str(matched["user_key"])
+    if uk == my_uk:
+        return JSONResponse({"success": False, "error": "That's your own Watch Code — pick a friend's code!"}, status_code=400)
+    if not has_user_history(uk):
+        return JSONResponse({"success": False, "error": "That viewer doesn't have synced watch history yet."}, status_code=400)
+
+    # Explicit code exchange: reveal friendly title/username if available, else anonymized name
+    friendly = matched.get("title") or matched.get("username")
+    dname, _ = _peer_display_name(user, matched)
+    return JSONResponse({
+        "success": True,
+        "peer": {
+            "user_key": uk,
+            "display_name": friendly or dname,
+        },
+    })
+
+
+@app.get("/api/recommendations/together", response_class=JSONResponse)
+def api_recommendations_together(
+    request: Request,
+    peers: str = "",
+    type: str = "all",
+    genre: Optional[str] = None,
+    language: Optional[str] = "en",
+    min_rating: float = 7.0,
+    limit: int = 18,
+    page: int = 1,
+    available: bool = False,
+    include_kids: bool = False,
+    force_refresh: bool = False,
+):
+    """Compute blended Watch Together recommendations unseen by all selected viewers."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    group_keys = _resolve_peer_keys(user, peers)
+    if len(group_keys) < 2:
+        return JSONResponse({
+            "html": "",
+            "has_results": False,
+            "needs_peers": True,
+            "group_size": len(group_keys),
+            "shared_genres": [],
+            "watchlist_count": get_user_watchlist_count(user["user_key"]),
+            "error": None,
+        })
+
+    if not tmdb.is_configured():
+        return JSONResponse({
+            "html": "",
+            "has_results": False,
+            "error": "TMDb API Key is not configured. Please ask your administrator to add it in Settings.",
+        })
+
+    results = recommender.get_group_recommendations(
+        user_keys=group_keys,
+        media_type=type,
+        limit=limit,
+        page=page,
+        min_rating=min_rating,
+        genre_filter=genre,
+        language=language or "en",
+        only_available=available,
+        include_kids=include_kids,
+        force_refresh=force_refresh,
+    )
+
+    low_bw = is_low_bandwidth(request)
+    for item in results.get("recommendations", []):
+        cached = get_cached_poster_url_from_source(
+            item.get("tmdb_id"), item.get("media_type"), item.get("poster_url"), low_bw
+        )
+        if cached:
+            item["poster_url"] = cached
+
+    uk = user["user_key"]
+    watchlist_ids = get_user_watchlist_ids(uk)
+    html = templates.get_template("_recommendation_cards.html").render(
+        {
+            "request": request,
+            "results": results,
+            "error_msg": results.get("error"),
+            "has_overseerr": overseerr.is_configured(),
+            "low_bandwidth": low_bw,
+            "user_votes": get_user_votes(uk),
+            "watchlist_ids": watchlist_ids,
+            "is_watchlist_view": False,
+            "pool_stats": get_user_action_counts(uk),
+        }
+    )
+
+    return JSONResponse({
+        "html": html,
+        "has_results": bool(results.get("recommendations")),
+        "from_cache": bool(results.get("from_cache")),
+        "is_complete": True,
+        "page": results.get("page", 1),
+        "total_pages": results.get("total_pages", 1),
+        "unseen_count": results.get("unseen_count", 0),
+        "group_size": results.get("group_size", len(group_keys)),
+        "shared_genres": results.get("shared_genres", []),
+        "watchlist_count": len(watchlist_ids),
+        "exhaustion_reason": results.get("exhaustion_reason"),
+        "error": results.get("error"),
+    })
+
+
+_ALLOWED_TONIGHT_SOURCES = frozenset({"discover", "together", "watchlist"})
+
+
+@app.get("/api/recommendations/tonight", response_class=JSONResponse)
+def api_recommendations_tonight(
+    request: Request,
+    source: str = "discover",
+    peers: str = "",
+    type: str = "all",
+    mood: str = "best",
+    available: bool = False,
+    exclude_ids: str = "",
+):
+    """Tonight Picker ('Surprise Me'): return 1-3 mood/runtime-curated finalists."""
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    src = source.strip().lower()
+    if src not in _ALLOWED_TONIGHT_SOURCES:
+        raise HTTPException(status_code=400, detail="Invalid Tonight Picker source.")
+    if mood not in TONIGHT_MOODS:
+        raise HTTPException(status_code=400, detail="Invalid mood preset.")
+    mtype = type.strip().lower()
+    if mtype not in ("all", "movie", "show"):
+        raise HTTPException(status_code=400, detail="Invalid media type.")
+
+    excl: set[str] = set()
+    if exclude_ids:
+        for raw_id in exclude_ids.split(","):
+            tok = raw_id.strip()
+            if tok:
+                excl.add(_validate_tmdb_id(tok))
+
+    uk = user["user_key"]
+    group_keys = _resolve_peer_keys(user, peers) if src == "together" else None
+    if src == "together" and (not group_keys or len(group_keys) < 2):
+        return JSONResponse({
+            "success": False,
+            "error": "Select at least 1 friend in Watch Together before spinning Group Picks.",
+            "picks": [],
+        }, status_code=400)
+
+    if src != "watchlist" and not tmdb.is_configured():
+        return JSONResponse({
+            "success": False,
+            "error": "TMDb API Key is not configured.",
+            "picks": [],
+        }, status_code=400)
+
+    res = recommender.get_tonight_picks(
+        user_key=uk,
+        source=src,
+        group_user_keys=group_keys,
+        media_type=mtype,
+        mood=mood,
+        only_available=available,
+        exclude_ids=excl,
+        count=3,
+    )
+
+    low_bw = is_low_bandwidth(request)
+    wl_ids = get_user_watchlist_ids(uk)
+    for pick in res.get("picks", []):
+        if low_bw:
+            pick["poster_url"] = None
+        else:
+            cached = get_cached_poster_url_from_source(
+                pick.get("tmdb_id"), pick.get("media_type"), pick.get("poster_url"), low_bw
+            )
+            if cached:
+                pick["poster_url"] = cached
+        pick["is_in_watchlist"] = str(pick.get("tmdb_id")) in wl_ids
+
+    return JSONResponse({
+        **res,
+        "has_overseerr": overseerr.is_configured(),
+        "low_bandwidth": low_bw,
+    })
 
 
 def _sanitize_poster_url(poster_url: Optional[str]) -> Optional[str]:
