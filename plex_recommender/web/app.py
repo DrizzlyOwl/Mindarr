@@ -277,10 +277,19 @@ _ONBOARDING_GATE_ALLOWLIST = (
 )
 
 
+# API routes that are legitimately accessible before authentication (OAuth PIN flow).
+_PUBLIC_API_ROUTES = frozenset({"/api/auth/start", "/api/auth/poll"})
+
+
 @app.middleware("http")
 async def same_origin_csrf_guard(request: Request, call_next):
-    """Reject cross-origin state-changing requests when Origin or Referer is present."""
+    """Reject cross-origin state-changing requests via Sec-Fetch-Site, Origin, or Referer."""
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+        if sec_fetch_site == "cross-site":
+            logger.warning("Blocked cross-site %s %s (Sec-Fetch-Site=cross-site)", request.method, request.url.path)
+            return JSONResponse({"error": "cross_origin_forbidden"}, status_code=403)
+
         target_host = (
             request.headers.get("x-forwarded-host")
             or request.headers.get("host")
@@ -294,7 +303,21 @@ async def same_origin_csrf_guard(request: Request, call_next):
             parsed = urlparse(source_header)
             source_host = (parsed.netloc or "").strip().lower()
             if not source_host or (target_host and source_host != target_host):
+                logger.warning(
+                    "Blocked cross-origin %s %s (source=%s, target=%s)",
+                    request.method, request.url.path, source_host, target_host,
+                )
                 return JSONResponse({"error": "cross_origin_forbidden"}, status_code=403)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def api_auth_guard(request: Request, call_next):
+    """Enforce authentication across all /api/ routes except pre-login OAuth endpoints."""
+    path = request.url.path
+    if path.startswith("/api/") and path not in _PUBLIC_API_ROUTES:
+        if not get_current_user(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
 
@@ -1037,6 +1060,8 @@ def api_jobs_status(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
     return JSONResponse({
         "configured_jobs": get_scheduled_jobs_info(),
         "running_jobs": job_manager.running_jobs,
@@ -1350,7 +1375,9 @@ def trigger_sync(request: Request, background_tasks: BackgroundTasks):
 @app.get("/api/sync/status")
 def get_sync_status(request: Request):
     user = get_current_user(request)
-    stats = get_stats(user["user_key"]) if user else get_stats()
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    stats = get_stats(user["user_key"])
     return JSONResponse({
         "is_syncing": sync_state["is_syncing"],
         "status": sync_state["status"],
@@ -1436,8 +1463,11 @@ def request_overseerr(
 
 @app.get("/api/overseerr/test")
 def test_overseerr_route(request: Request):
-    if not get_current_user(request):
+    user = get_current_user(request)
+    if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
     success, message = overseerr.test_connection()
     return JSONResponse({"success": success, "message": message})
 

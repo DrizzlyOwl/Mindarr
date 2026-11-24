@@ -54,8 +54,13 @@ def test_login_page_renders():
         assert "Administrator" in resp.text
 
 
-def test_sync_status_requires_no_auth_but_returns_global():
+def test_sync_status_requires_auth():
     with TestClient(app) as client:
+        unauth = client.get("/api/sync/status")
+        assert unauth.status_code == 401
+        assert unauth.json()["error"] == "unauthorized"
+
+        _login(client)
         resp = client.get("/api/sync/status")
         assert resp.status_code == 200
         data = resp.json()
@@ -427,6 +432,14 @@ def test_clear_user_data_removes_watch_data():
 
 def test_clear_user_data_forbidden_without_admin():
     with TestClient(app) as client:
+        unauth = client.post("/api/system/clear-user", data={"user_key": USER}, follow_redirects=False)
+        assert unauth.status_code == 401
+
+        create_or_update_user({
+            "user_key": "non_admin_u", "username": "bob", "email": "b@x.com",
+            "title": "Bob", "is_admin": False,
+        })
+        _sign_session_for(client, "non_admin_u")
         resp = client.post("/api/system/clear-user", data={"user_key": USER}, follow_redirects=False)
         assert resp.status_code == 403
 
