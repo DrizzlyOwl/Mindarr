@@ -1204,6 +1204,43 @@ def test_api_clear_recommendations_cache_is_scoped_to_current_user():
     assert get_cached_recommendations("other_user:all::en:7.0:0:0", None) is not None
 
 
+def test_serve_cached_poster_route(tmp_path, monkeypatch):
+    from plex_recommender import poster_cache
+
+    poster_dir = tmp_path / "posters"
+    poster_dir.mkdir(parents=True, exist_ok=True)
+    (poster_dir / "movie_123.jpg").write_bytes(b"jpeg-bytes")
+    monkeypatch.setattr(poster_cache, "CACHE_DIR", poster_dir)
+
+    with TestClient(app) as client:
+        ok_resp = client.get("/static/posters/movie_123.jpg")
+        assert ok_resp.status_code == 200
+        assert ok_resp.content == b"jpeg-bytes"
+
+        missing_resp = client.get("/static/posters/movie_999.jpg")
+        assert missing_resp.status_code == 404
+
+
+def test_save_settings_triggers_healthcheck_on_integration_change(monkeypatch):
+    from unittest.mock import MagicMock
+    from plex_recommender.web import app as webapp
+
+    mock_health = MagicMock()
+    monkeypatch.setattr(webapp.job_manager, "run_healthcheck", mock_health)
+    monkeypatch.setattr(webapp.settings, "save_setting", lambda k, v: None)
+
+    with TestClient(app) as client:
+        _login(client)
+        resp = client.post(
+            "/api/settings/save",
+            data={"tmdb_api_key": "new_test_key_123"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+
+    mock_health.assert_called_once_with(trigger="manual")
+
+
 
 
 

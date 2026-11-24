@@ -17,7 +17,7 @@ def test_overseerr_is_configured(monkeypatch):
     assert OverseerrClient(base_url="http://test:5055", api_key=None).is_configured() is False
     assert OverseerrClient(base_url="", api_key=None).is_configured() is False
 
-@patch("requests.get")
+@patch("requests.Session.get")
 def test_overseerr_test_connection_success(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -29,7 +29,7 @@ def test_overseerr_test_connection_success(mock_get):
     assert success is True
     assert "3.4.1" in msg
 
-@patch("requests.post")
+@patch("requests.Session.post")
 def test_overseerr_request_movie(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 201
@@ -48,7 +48,7 @@ def test_overseerr_request_movie(mock_post):
     assert payload["mediaId"] == 27205
     assert payload["is4k"] is False
 
-@patch("requests.post")
+@patch("requests.Session.post")
 def test_overseerr_request_tv(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 201
@@ -67,7 +67,7 @@ def test_overseerr_request_tv(mock_post):
     assert payload["seasons"] == [1]
     assert "Season 1" in msg
 
-@patch("requests.post")
+@patch("requests.Session.post")
 def test_overseerr_request_tv_all_seasons(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 201
@@ -83,7 +83,7 @@ def test_overseerr_request_tv_all_seasons(mock_post):
     assert payload["seasons"] == "all"
 
 
-@patch("requests.post")
+@patch("requests.Session.post")
 def test_overseerr_request_with_user_id(mock_post):
     mock_resp = MagicMock()
     mock_resp.status_code = 201
@@ -100,7 +100,7 @@ def test_overseerr_request_with_user_id(mock_post):
     assert payload["mediaId"] == 550
 
 
-@patch("requests.get")
+@patch("requests.Session.get")
 def test_overseerr_resolve_user_id(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -128,7 +128,7 @@ def test_overseerr_resolve_user_id(mock_get):
     assert client.resolve_user_id(plex_user_key="999999", email="unknown@plex.local", username="unknown") is None
 
 
-@patch("requests.get")
+@patch("requests.Session.get")
 def test_overseerr_get_request_queue(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 200

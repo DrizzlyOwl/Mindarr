@@ -45,7 +45,7 @@ from plex_recommender.discovery.tmdb import to_canonical_genre, get_tmdb_categor
 from plex_recommender.discovery.overseerr import overseerr
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.jobs import job_manager, JOB_DEFINITIONS
-from plex_recommender.poster_cache import get_cached_poster_url, get_cached_poster_url_from_source
+from plex_recommender.poster_cache import get_cached_poster_url, get_cached_poster_url_from_source, _cache_dir as get_poster_cache_dir
 from plex_recommender.health import get_unhealthy
 
 logger = logging.getLogger("plex_recommender.web")
@@ -295,6 +295,18 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.session_https_only,
 )
+
+
+@app.get("/static/posters/{filename}")
+def serve_cached_poster(filename: str):
+    """Serve cached TMDb posters from the persistent config/posters directory."""
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename:
+        raise HTTPException(status_code=404, detail="Poster not found.")
+    poster_path = get_poster_cache_dir() / safe_name
+    if not poster_path.is_file():
+        raise HTTPException(status_code=404, detail="Poster not found.")
+    return FileResponse(str(poster_path), media_type="image/jpeg")
 
 
 # Mount static if directory exists
@@ -818,6 +830,7 @@ def settings_page(request: Request):
 @app.post("/api/settings/save")
 def save_settings(
     request: Request,
+    background_tasks: BackgroundTasks,
     plex_url: Optional[str] = Form(None),
     plex_token: Optional[str] = Form(None),
     tmdb_api_key: Optional[str] = Form(None),
@@ -904,6 +917,10 @@ def save_settings(
             settings.save_setting("SESSION_HTTPS_ONLY", "true" if https_only_val else "false")
             settings.session_https_only = https_only_val
             changed.append(f"SESSION_HTTPS_ONLY={https_only_val}")
+
+    integration_keys = {"TMDB_API_KEY", "OVERSEERR_URL", "OVERSEERR_API_KEY", "TAUTULLI_URL", "TAUTULLI_API_KEY"}
+    if any(k in integration_keys for k in changed):
+        background_tasks.add_task(job_manager.run_healthcheck, trigger="manual")
 
     logger.info(
         "Admin '%s' saved configuration changes: %s",

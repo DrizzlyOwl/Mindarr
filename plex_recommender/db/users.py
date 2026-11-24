@@ -139,7 +139,7 @@ def get_database_stats() -> Dict[str, Any]:
     tables = [
         "users", "user_media", "media_items", "watch_events",
         "seen_identifiers", "recommendations_cache", "job_history", "app_settings",
-        "user_dismissals", "user_votes",
+        "user_dismissals", "user_votes", "system_logs",
     ]
     table_counts = {}
     for t in tables:

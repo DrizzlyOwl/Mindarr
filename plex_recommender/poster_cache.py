@@ -6,13 +6,14 @@ from typing import Optional
 
 import requests
 
-from plex_recommender.discovery.tmdb import TMDbClient, TMDB_IMAGE_BASE
+from plex_recommender.config import settings
+from plex_recommender.discovery.tmdb import tmdb, TMDB_IMAGE_BASE
 
 logger = logging.getLogger(__name__)
 
 POSTER_TTL_DAYS = 7
 
-CACHE_DIR = Path(__file__).resolve().parent / "web" / "static" / "posters"
+CACHE_DIR = settings.config_dir / "posters"
 
 
 def _cache_dir() -> Path:
@@ -69,9 +70,8 @@ def get_cached_poster_url(tmdb_id, media_type: str, low_bandwidth: bool = False)
         return f"/static/posters/{path.name}"
 
     try:
-        client = TMDbClient()
         mtype = "tv" if str(media_type).lower() in ("show", "tv", "episode") else "movie"
-        data = client._request(f"/{mtype}/{tmdb_id}")
+        data = tmdb._request(f"/{mtype}/{tmdb_id}")
         poster_path = data.get("poster_path")
         if not poster_path:
             return None

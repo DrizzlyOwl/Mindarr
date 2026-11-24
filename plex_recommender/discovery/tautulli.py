@@ -2,6 +2,7 @@ import logging
 from typing import Optional, Dict, Any, Tuple, List
 import requests
 from plex_recommender.config import settings
+from plex_recommender.http_client import make_session
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,15 @@ class TautulliClient:
         # from settings on each access so config changes take effect immediately.
         self._base_url_override = base_url.rstrip("/") if base_url is not None else None
         self._api_key_override = api_key
+        self._session: Optional[requests.Session] = None
+        self._session_base_url: Optional[str] = None
+
+    def _get_session(self) -> requests.Session:
+        url = self.base_url
+        if self._session is None or self._session_base_url != url:
+            self._session = make_session(url)
+            self._session_base_url = url
+        return self._session
 
     @property
     def base_url(self) -> str:
@@ -46,7 +56,7 @@ class TautulliClient:
         }
         query.update(params)
         try:
-            resp = requests.get(url, params=query, timeout=15)
+            resp = self._get_session().get(url, params=query, timeout=15)
             if resp.status_code != 200:
                 logger.debug("Tautulli %s HTTP %s", cmd, resp.status_code)
                 return None
@@ -89,10 +99,11 @@ class TautulliClient:
         """Match a Plex identity to a Tautulli user_id by email or username."""
         email_l = (email or "").strip().lower()
         username_l = (username or "").strip().lower()
-        for u in self.get_users():
+        users = self.get_users()
+        for u in users:
             if email_l and (u.get("email") or "").strip().lower() == email_l:
                 return u["user_id"]
-        for u in self.get_users():
+        for u in users:
             if username_l and (u.get("username") or "").strip().lower() == username_l:
                 return u["user_id"]
         return None

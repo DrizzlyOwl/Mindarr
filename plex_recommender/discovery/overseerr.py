@@ -3,6 +3,7 @@ import time
 import requests
 from typing import Optional, Dict, Any, Tuple, List
 from plex_recommender.config import settings
+from plex_recommender.http_client import make_session
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,15 @@ class OverseerrClient:
         self._users_cache_time: float = 0.0
         self._queue_cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._queue_cache_time: float = 0.0
+        self._session: Optional[requests.Session] = None
+        self._session_base_url: Optional[str] = None
+
+    def _get_session(self) -> requests.Session:
+        url = self.base_url
+        if self._session is None or self._session_base_url != url:
+            self._session = make_session(url)
+            self._session_base_url = url
+        return self._session
 
     @property
     def base_url(self) -> str:
@@ -54,7 +64,7 @@ class OverseerrClient:
         """Test Overseerr server reachability and API key authentication."""
         url = f"{self.base_url}/api/v1/status"
         try:
-            resp = requests.get(url, headers=self._get_headers(), timeout=5)
+            resp = self._get_session().get(url, headers=self._get_headers(), timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 version = data.get("version", "unknown")
@@ -76,7 +86,7 @@ class OverseerrClient:
 
         url = f"{self.base_url}/api/v1/user?take=100&skip=0"
         try:
-            resp = requests.get(url, headers=self._get_headers(), timeout=8)
+            resp = self._get_session().get(url, headers=self._get_headers(), timeout=8)
             if resp.status_code == 200:
                 data = resp.json()
                 users = data.get("results", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -131,7 +141,7 @@ class OverseerrClient:
         endpoint_type = "movie" if media_type == "movie" else "tv"
         url = f"{self.base_url}/api/v1/{endpoint_type}/{tmdb_id}"
         try:
-            resp = requests.get(url, headers=self._get_headers(), timeout=5)
+            resp = self._get_session().get(url, headers=self._get_headers(), timeout=5)
             if resp.status_code == 200:
                 data = resp.json()
                 media_info = data.get("mediaInfo") or {}
@@ -164,7 +174,7 @@ class OverseerrClient:
         url = f"{self.base_url}/api/v1/request?take=500&skip=0&filter=all"
         queue_index: Dict[str, Dict[str, Any]] = {}
         try:
-            resp = requests.get(url, headers=self._get_headers(), timeout=6)
+            resp = self._get_session().get(url, headers=self._get_headers(), timeout=6)
             if resp.status_code == 200:
                 data = resp.json()
                 results = data.get("results", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -247,7 +257,7 @@ class OverseerrClient:
             payload["seasons"] = [1] if seasons is None else seasons
 
         try:
-            resp = requests.post(url, json=payload, headers=self._get_headers(), timeout=10)
+            resp = self._get_session().post(url, json=payload, headers=self._get_headers(), timeout=10)
             if resp.status_code in (200, 201):
                 season_str = " (Season 1)" if (endpoint_type == "tv" and payload["seasons"] == [1]) else ""
                 return True, f"Request submitted successfully to Overseerr{season_str}!"

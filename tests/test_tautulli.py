@@ -20,7 +20,7 @@ def test_not_configured_returns_empty():
 def test_test_connection_success():
     client = TautulliClient(base_url="http://tautulli:8181", api_key="key")
     payload = {"response": {"result": "success", "data": {"pms_name": "HomeServer"}}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(payload)):
+    with patch("requests.Session.get", return_value=_resp(payload)):
         ok, msg = client.test_connection()
     assert ok is True
     assert "HomeServer" in msg
@@ -32,10 +32,11 @@ def test_resolve_user_id_by_email_then_username():
         {"user_id": 11, "username": "bob", "email": "bob@x.com"},
         {"user_id": 22, "username": "carol", "email": "carol@x.com"},
     ]}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(users_payload)):
+    with patch("requests.Session.get", return_value=_resp(users_payload)) as mock_get:
         assert client.resolve_user_id(email="carol@x.com") == "22"
         assert client.resolve_user_id(username="bob") == "11"
         assert client.resolve_user_id(email="none@x.com") is None
+        assert mock_get.call_count == 3
 
 
 def test_get_history_parses_rows():
@@ -43,7 +44,7 @@ def test_get_history_parses_rows():
     hist_payload = {"response": {"result": "success", "data": {"data": [
         {"rating_key": "555", "full_title": "Some Movie", "media_type": "movie", "date": 1700000000},
     ]}}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(hist_payload)):
+    with patch("requests.Session.get", return_value=_resp(hist_payload)):
         rows = client.get_history("22")
     assert len(rows) == 1
     assert rows[0]["rating_key"] == "555"
@@ -58,7 +59,7 @@ def test_get_metadata_parses_cast_and_genres():
         "actors": ["Actor One", "Actor Two"],
         "imdb_id": "tt0000001",
     }}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(payload)):
+    with patch("requests.Session.get", return_value=_resp(payload)):
         meta = client.get_metadata("42")
     assert meta["title"] == "Great Show"
     assert meta["genres"] == ["Comedy", "Drama"]
@@ -72,7 +73,7 @@ def test_get_home_stats_parses_groups():
     payload = {"response": {"result": "success", "data": [
         {"stat_id": "popular_movies", "rows": [{"title": "Top Film", "users_watched": 4}]},
     ]}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(payload)):
+    with patch("requests.Session.get", return_value=_resp(payload)):
         stats = client.get_home_stats()
     assert len(stats) == 1
     assert stats[0]["stat_id"] == "popular_movies"
@@ -83,7 +84,7 @@ def test_get_history_without_user_id():
     payload = {"response": {"result": "success", "data": {"data": [
         {"rating_key": "123", "title": "Server Wide Show"},
     ]}}}
-    with patch("plex_recommender.discovery.tautulli.requests.get", return_value=_resp(payload)):
+    with patch("requests.Session.get", return_value=_resp(payload)):
         rows = client.get_history()
     assert len(rows) == 1
     assert rows[0]["title"] == "Server Wide Show"
