@@ -1,7 +1,9 @@
 import pytest
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
+from plex_recommender.achievements import evaluate_achievements, streaks, summarize_achievements
 from plex_recommender.config import settings
 from plex_recommender.db import init_db
 from plex_recommender.community import CommunityService, community_service
@@ -64,27 +66,107 @@ def test_determine_watcher_titles():
 
 
 def test_evaluate_badges():
-    service = CommunityService()
+    badges = evaluate_achievements({
+        "plays": 50, "watch_hours": 105, "movies": 20, "episode_plays": 30,
+        "genres": 5, "trending_overlap": 50, "registered": 1, "champion": 1,
+    })
+    summary = summarize_achievements(badges)
+    assert {b["id"] for b in summary["badges"]} == {
+        "first_steps", "champion", "marathon", "century", "cinephile", "binge", "explorer", "trendsetter", "pioneer",
+    }
+    assert summary["trophy_score"] == 235
+    assert summary["next_up"][0]["id"] == "trend_leader"
 
-    # Rank 1 user with 105 hours, 20 movies, 30 shows, 5 genres
-    badges = service._evaluate_badges(
-        rank=1,
-        plays=50,
-        total_hours=105.0,
-        movie_count=20,
-        show_count=30,
-        genre_count=5,
-        overlap_pct=50,
-        is_registered=True,
-    )
-    badge_ids = {b["id"] for b in badges}
-    assert "champion" in badge_ids
-    assert "century" in badge_ids
-    assert "cinephile" in badge_ids
-    assert "binge" in badge_ids
-    assert "explorer" in badge_ids
-    assert "trendsetter" in badge_ids
-    assert "pioneer" in badge_ids
+
+def test_streak_counts_distinct_local_dates_and_allows_yesterday():
+    today = date(2026, 11, 25)
+    days = [today - timedelta(days=n) for n in (1, 1, 2, 4, 5, 6, 7, -1)]
+    assert streaks(days, today) == (2, 4)
+    assert streaks(days[:-1], today + timedelta(days=1)) == (0, 4)
+    assert streaks([], today) == (0, 0)
+
+
+def test_achievement_progress_comes_from_synced_data_and_is_consistent_across_viewers(monkeypatch):
+    from plex_recommender import sync
+    from plex_recommender.db.engagement import add_to_watchlist, record_vote, dismiss_item
+    from plex_recommender.db.users import create_or_update_user
+    from plex_recommender.db.watch import record_watch_event, upsert_user_media
+
+    service = CommunityService()
+    service.clear_cache()
+    monkeypatch.setattr("plex_recommender.community.tautulli.is_configured", lambda: False)
+    alice = {"user_key": "trophy-alice", "username": "alice"}
+    bob = {"user_key": "trophy-bob", "username": "bob"}
+    for user in (alice, bob):
+        create_or_update_user(user)
+
+    a, b = alice["user_key"], bob["user_key"]
+    for i, year in enumerate((1979, 1985, 1996, 2003, 2021)):
+        item = {"item_id": f"shared{i}", "title": f"Film {i}", "media_type": "movie", "year": year,
+                "genres": ["Action", "Drama", "Sci-Fi", "Adventure", " drama "],
+                "directors": ["Director A", " director a "], "critic_rating": 8.5}
+        upsert_user_media(a, item)
+        upsert_user_media(b, {**item, "view_count": 30})
+    upsert_user_media(b, {"item_id": "bob-only", "title": "Bob's Pick", "year": 2022, "media_type": "movie"})
+    dismiss_item(a, "1000", title="Bob's Pick", year=2022, reason="not_interested")
+    for i in range(25):
+        record_vote(a, str(i))
+    for i in range(5):
+        add_to_watchlist(a, str(i))
+
+    # Play history and app actions are different inputs from the XP leaderboard.
+    for i in range(3):
+        viewed_at = datetime.combine(date.today() - timedelta(days=i+1), datetime.min.time()).replace(hour=1).isoformat()
+        event = {"user_key": a, "item_id": "shared0", "media_type": "movie", "viewed_at": viewed_at}
+        record_watch_event({**event, "source": "plex"})
+        record_watch_event({**event, "source": "tautulli", "duration_watched": 3600})
+        record_watch_event({**event, "user_key": b, "source": "plex"})
+
+    def awards(data):
+        return {badge["id"]: badge for category in data["user_comparison"]["trophy_case"]["categories"]
+                for badge in category["awards"]}
+
+    before = service.get_community_data(alice)
+    badges = awards(before)
+    assert {key for key, badge in badges.items() if badge["unlocked"]} >= {
+        "hat_trick", "auteur_seeker", "shared_wavelength", "active_critic", "watchlist_collector", "decade_hopper",
+    }
+    assert badges["night_owl"]["current"] == 3
+    assert badges["explorer"]["current"] == 4
+    assert badges["trend_leader"]["current"] == 83  # Dismissal isn't a watch.
+    assert badges["marathon"]["current"] == 3  # Synced duration, no XP duration estimates.
+    assert badges["binge"]["current"] == 0  # Rewatching movies is not episode progress.
+    assert before["leaderboard"][0]["user_key"] == b
+    assert before["leaderboard"][1]["gamification"]["trophy_score"] > before["leaderboard"][0]["gamification"]["trophy_score"]
+    best = next(r for r in before["user_comparison"]["server_records"] if r["name"] == "Longest Streak")
+    assert best["holders"] == ["bob", "alice"]
+    as_bob = service.get_community_data(bob)
+    assert before["leaderboard"][1]["gamification"] == as_bob["leaderboard"][1]["gamification"]
+
+    def plex_sync(user_key, **kwargs):
+        record_watch_event({"user_key": user_key, "item_id": "ep1", "media_type": "episode",
+                            "viewed_at": datetime.now().isoformat()})
+        return 1
+
+    monkeypatch.setattr(sync, "sync_plex_user_history", plex_sync)
+    monkeypatch.setattr(sync, "sync_tautulli_user_history", lambda *a, **kw: 0)
+    sync.sync_user_history(a)
+    assert awards(service.get_community_data(alice))["binge"]["current"] == 1
+    assert awards(service.get_community_data(bob))["binge"]["current"] == 0
+    service.clear_cache()
+
+
+def test_unlinked_tautulli_uses_only_local_data_for_trophies(monkeypatch):
+    service = CommunityService()
+    service.clear_cache()
+    monkeypatch.setattr("plex_recommender.community.tautulli.is_configured", lambda: True)
+    monkeypatch.setattr("plex_recommender.community.tautulli.monitors_server", lambda _: False)
+    with patch.object(service, "_build_from_tautulli") as live:
+        data = service.get_community_data({"user_key": "unlinked", "username": "demo"})
+    live.assert_not_called()
+    assert data["source"] == "db"
+    assert not data["user_comparison"]["server_records"]
+    service.clear_cache()
 
 
 def test_format_duration():
@@ -135,7 +217,6 @@ def test_build_leaderboard_and_comparison_multiple_users():
     leaderboard, comparison, podium = service._build_leaderboard_and_comparison(
         current_user=current_user,
         candidate_users=candidates,
-        overlap_pct=60,
     )
 
     # Candidate 1 (Alice) is #1 and shows authentic identity & avatar
@@ -162,8 +243,7 @@ def test_build_leaderboard_and_comparison_multiple_users():
     assert comparison["plays_behind"] == 40
     assert comparison["next_rank_gap"] == 41
     assert "Alice" in comparison["rank_message"]
-    assert len(comparison["unlocked_badges"]) > 0
-    assert len(comparison["locked_badges"]) > 0
+    assert 0 < comparison["trophy_case"]["unlocked_count"] < comparison["trophy_case"]["total_count"]
 
     # Podium
     assert podium["first"]["display_name"] == "Alice"
@@ -319,6 +399,7 @@ def test_web_community_leaderboard_rendering():
             "onboarded_at": "2024-01-01T00:00:00",
         }
 
+        trophy_case = CommunityService()._build_leaderboard_and_comparison(mock_user.return_value, [])[1]["trophy_case"]
         mock_community_data = {
             "is_single_user": False,
             "total_community_members": 2,
@@ -414,12 +495,8 @@ def test_web_community_leaderboard_rendering():
                 "next_rank_gap": 36,
                 "next_rank_user": "Top Streamer",
                 "rank_message": "Hot on their heels! ⚔️ Only 36 more plays to take #1 from Top Streamer!",
-                "unlocked_badges": [
-                    {"id": "pioneer", "name": "Server Pioneer", "icon": "🌟", "desc": "Registered community member"}
-                ],
-                "locked_badges": [
-                    {"id": "champion", "name": "Server Champion", "icon": "👑", "desc": "Rank 1", "hint": "Claim #1 spot"}
-                ],
+                "trophy_case": trophy_case,
+                "server_records": [{"name": "Longest Streak", "icon": "🔥", "holders": ["Ashley"], "value": 3, "unit": "days"}],
             },
             "podium": {
                 "first": {
@@ -457,6 +534,10 @@ def test_web_community_leaderboard_rendering():
             assert "Binge Prodigy 🥈" in text
             assert "Your Trophy Case" in text
             assert "Server Pioneer" in text
+            assert "Trophy Score" in text
+            assert "Current Streak" in text
+            assert "Server Records" in text
+            assert 'data-trophy-filter="curator"' in text
             assert "Hot on their heels!" in text
             assert "You vs Server Leader" in text
             assert "Plays" in text

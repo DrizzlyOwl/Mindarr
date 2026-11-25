@@ -100,9 +100,9 @@
                         🏆 Top Watchers
                     </span>
                 </h2>
-                <p class="text-xs text-slate-400 mt-0.5">Rankings, watch milestones, and achievement badges across your Plex server community.</p>
+                <p class="text-xs text-slate-400 mt-0.5">Watch alongside your community and earn trophies without changing your Watcher XP.</p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
                 {% if community.user_comparison %}
                 <span class="text-xs px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-medium">
                     Your Rank: <strong class="text-amber-400">#{{ community.user_comparison.user_rank }}</strong> of {{ community.user_comparison.total_watchers }}
@@ -203,34 +203,28 @@
                 </div>
             </div>
 
-            <!-- Badges & Trophy Showcase -->
-            <div class="pt-4 border-t border-slate-800/80">
-                <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center space-x-2">
-                    <span>Your Trophy Case</span>
-                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-                        {{ community.user_comparison.unlocked_badges|length }} Unlocked
-                    </span>
-                </div>
-                <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
-                    {% for b in community.user_comparison.unlocked_badges %}
-                    <button type="button" onclick="togglePopover('badge-popover-unlocked-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative bg-slate-950/70 border border-amber-500/30 rounded-xl p-2.5 flex flex-col items-center text-center shadow hover:border-amber-400 transition w-full">
-                        <span class="text-2xl filter drop-shadow">{{ b.icon }}</span>
-                        <span class="text-[11px] font-bold text-white mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
-                        <span class="text-[9px] text-emerald-400 font-medium">Unlocked</span>
-                        <span id="badge-popover-unlocked-{{ loop.index0 }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-40 bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl">{{ b.desc }}</span>
-                    </button>
-                    {% endfor %}
-                    {% for b in community.user_comparison.locked_badges %}
-                    <button type="button" onclick="togglePopover('badge-popover-locked-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative bg-slate-950/40 border border-slate-800/70 rounded-xl p-2.5 flex flex-col items-center text-center opacity-40 hover:opacity-75 transition w-full">
-                        <span class="text-2xl filter grayscale">{{ b.icon }}</span>
-                        <span class="text-[11px] font-medium text-slate-400 mt-1 leading-tight line-clamp-1">{{ b.name }}</span>
-                        <span class="text-[9px] text-slate-500">Locked</span>
-                        <span id="badge-popover-locked-{{ loop.index0 }}" data-popover class="hidden absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-40 bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl opacity-100">{{ b.hint }}</span>
-                    </button>
-                    {% endfor %}
-                </div>
-            </div>
         </div>
+        {% if community.user_comparison.trophy_case %}
+            {% set trophies = community.user_comparison.trophy_case %}
+            {% include "_trophy_case.html" %}
+        {% endif %}
+        {% if community.user_comparison.server_records %}
+        <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-3" aria-labelledby="server-records-heading">
+            <div>
+                <h3 id="server-records-heading" class="text-lg font-bold text-white">Server Records</h3>
+                <p class="text-xs text-slate-400">More ways to stand out than the XP leaderboard.</p>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                {% for record in community.user_comparison.server_records %}
+                <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                    <p class="text-xs text-slate-400"><span aria-hidden="true">{{ record.icon }}</span> {{ record.name }}</p>
+                    <p class="mt-1 text-lg font-bold text-amber-300">{{ record.value }} <span class="text-xs font-normal text-slate-400">{{ record.unit }}</span></p>
+                    <p class="text-xs font-medium text-slate-200">{{ record.holders|join(', ') }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
         {% endif %}
 
         <!-- Top 3 Podium (when >= 2 users) -->
@@ -365,7 +359,7 @@
                             <th class="px-4 py-3 font-semibold text-center">Watch Time</th>
                             <th class="px-4 py-3 font-semibold text-center">Plays</th>
                             <th class="px-4 py-3 font-semibold">Top Flavor</th>
-                            <th class="px-5 py-3 font-semibold text-right">Badges</th>
+                            <th class="px-5 py-3 font-semibold text-right">Trophies</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800/60">
@@ -439,6 +433,7 @@
 
                             <!-- Badges -->
                             <td class="px-5 py-3.5 text-right whitespace-nowrap">
+                                <div class="mb-1 text-xs font-mono font-semibold text-amber-300">{{ user_row.gamification.trophy_score }} pts</div>
                                 <div class="inline-flex items-center space-x-1">
                                     {% for badge in user_row.gamification.badges[:4] %}
                                     <button type="button" onclick="togglePopover('badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" aria-label="{{ badge.name }}: {{ badge.desc }}">
@@ -542,7 +537,7 @@
                     </h3>
                     <p class="text-xs text-slate-400 mt-0.5">Most watched films on this Plex server</p>
                 </div>
-                <span class="text-xs text-slate-500 font-mono">Last 30 Days</span>
+                <span class="text-xs text-slate-500 font-mono">{{ 'Last 30 Days' if community.source == 'tautulli' else 'Synced History' }}</span>
             </div>
 
             <div class="overflow-x-auto flex-1">
@@ -596,7 +591,7 @@
                     </h3>
                     <p class="text-xs text-slate-400 mt-0.5">Most watched TV shows on this Plex server</p>
                 </div>
-                <span class="text-xs text-slate-500 font-mono">Last 30 Days</span>
+                <span class="text-xs text-slate-500 font-mono">{{ 'Last 30 Days' if community.source == 'tautulli' else 'Synced History' }}</span>
             </div>
 
             <div class="overflow-x-auto flex-1">

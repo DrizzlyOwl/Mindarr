@@ -22,9 +22,11 @@ TMDb-powered discovery cards with match scores, decision rationale tooltips, and
 ![Mindarr Recommendations](docs/screenshots/recommendations.png)
 
 ### Community & Server Leaderboard
-Server-wide benchmarks, RPG-style watcher levels/XP, achievement badges, and a podium leaderboard across your Plex server community.
+Mindarr **v1.9.0** expands Community with 33 achievements across viewing milestones, exploration, habits, community, and curation. The Trophy Case shows unlock progress, nearby goals, and current and best watch streaks. Server Records recognize achievements beyond the Watcher XP leaderboard.
 
 ![Mindarr Community](docs/screenshots/community.png)
+
+All preview screenshots use seeded demo accounts and viewing history, not data from a live Plex server.
 
 ---
 
@@ -36,10 +38,15 @@ Server-wide benchmarks, RPG-style watcher levels/XP, achievement badges, and a p
 - **Multi-user, per-account recommendations**: Watch data, taste profile, seen-index, and
   recommendations are scoped to the logged-in user.
 - **Tautulli enrichment (optional)**: When configured, per-user watch history is pulled from
-  Tautulli. If Tautulli is not configured — or a user has no Tautulli history — that user
-  simply has no recommendations (nothing is pulled).
+  Tautulli to supplement Plex history. Plex history is still used when Tautulli is absent
+  or has no matching user history.
 - **Viewing Trends & Taste Profiling**: Time-decayed genre affinity, rewatch/rating boosts,
   top directors and cast, and release-decade distribution.
+- **Community achievements**: Earn Bronze, Silver, Gold, and Legendary trophies worth
+  15, 35, 75, and 150 points. Trophy Score is separate from Watcher XP and never changes
+  leaderboard rank. No unlocks are stored: watch-based progress is recalculated from local
+  history after sync, and live badges can change with standings, trends, or app activity.
+  Streaks use the server's local calendar days. Tautulli is optional.
 - **TMDb Discovery Engine** with **strict unseen deduplication** against cached IMDb, TMDb,
   TVDb IDs and normalized titles.
 - **Overseerr Integration**: 1-click request button on each recommendation card.

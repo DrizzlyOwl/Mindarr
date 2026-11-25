@@ -5,6 +5,9 @@ import threading
 from typing import Optional, Dict, Any, List, Set, Tuple
 from datetime import datetime, timezone
 
+from plex_recommender.achievements import (
+    CATEGORIES, add_trending_metrics, collect_metrics, evaluate_achievements, summarize_achievements,
+)
 from plex_recommender.config import settings
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.db import get_connection
@@ -17,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Simple in-memory cache with 10-minute TTL per user_key to keep page renders ultra-fast
 _CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _CACHE_LOCK = threading.Lock()
+_CACHE_GENERATION = 0
 CACHE_TTL_SECONDS = 600
 
 
@@ -26,7 +30,9 @@ class CommunityService:
     @staticmethod
     def clear_cache() -> None:
         """Clear cached community data across all users."""
+        global _CACHE_GENERATION
         with _CACHE_LOCK:
+            _CACHE_GENERATION += 1
             _CACHE.clear()
 
     def get_community_data(
@@ -38,8 +44,9 @@ class CommunityService:
         cache_key = f"community_{user_key}"
 
         now = time.time()
-        if not force_refresh:
-            with _CACHE_LOCK:
+        with _CACHE_LOCK:
+            generation = _CACHE_GENERATION
+            if not force_refresh:
                 cached_entry = _CACHE.get(cache_key)
                 if cached_entry is not None:
                     cached_ts, cached_data = cached_entry
@@ -55,20 +62,19 @@ class CommunityService:
             for r in conn.execute("SELECT item_id FROM user_media WHERE user_key = ?", (user_key,)).fetchall()
         }
 
-        # Cache media_items metadata map (title, genres, summary, tmdb_id, imdb_id)
         media_meta_rows = conn.execute(
-            "SELECT item_id, media_type, title, year, genres, summary, tmdb_id, imdb_id FROM media_items"
+            "SELECT item_id, media_type, title, year, genres, directors, summary, tmdb_id, imdb_id, "
+            "critic_rating, audience_rating FROM media_items"
         ).fetchall()
         media_meta: Dict[str, Dict[str, Any]] = {}
         for mr in media_meta_rows:
             d = dict(mr)
-            if isinstance(d.get("genres"), str):
+            for field in ("genres", "directors"):
                 try:
-                    d["genres"] = json.loads(d["genres"])
-                except Exception:
-                    d["genres"] = []
-            elif not isinstance(d.get("genres"), list):
-                d["genres"] = []
+                    value = json.loads(d[field] or "[]")
+                except (TypeError, ValueError):
+                    value = []
+                d[field] = value if isinstance(value, list) else []
             media_meta[d["item_id"]] = d
 
         # Local user counts per item from user_media to cross-reference / fallback
@@ -167,22 +173,27 @@ class CommunityService:
         except Exception as e:
             logger.debug(f"Could not compute local user metrics: {e}")
 
-        conn.close()
+        try:
+            achievement_metrics = collect_metrics(conn, media_meta, datetime.fromtimestamp(now).astimezone())
+        finally:
+            conn.close()
 
-        # Check if Tautulli is configured and can provide server-wide history
-        if tautulli.is_configured():
+        # Live ranks and trends are only eligible from the linked Plex server.
+        if tautulli.is_configured() and tautulli.monitors_server(settings.plex_machine_id):
             data = self._build_from_tautulli(
                 current_user, seen_index, user_item_ids, local_user_stats, media_meta,
-                local_user_counts, local_user_metrics,
+                local_user_counts, local_user_metrics, achievement_metrics,
             )
         else:
             data = self._build_from_db(
                 current_user, seen_index, user_item_ids, local_user_stats, media_meta,
-                local_user_metrics,
+                local_user_metrics, achievement_metrics,
             )
 
         with _CACHE_LOCK:
-            _CACHE[cache_key] = (now, data)
+            # A request already in flight must not repopulate stale results after sync.
+            if generation == _CACHE_GENERATION:
+                _CACHE[cache_key] = (now, data)
         return data
 
     def _build_from_tautulli(
@@ -194,6 +205,7 @@ class CommunityService:
         media_meta: Dict[str, Dict[str, Any]],
         local_user_counts: Optional[Dict[str, Dict[str, int]]] = None,
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
+        achievement_metrics: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """Aggregate community data using Tautulli's server-wide statistics and history."""
         local_user_counts = local_user_counts or {}
@@ -202,7 +214,12 @@ class CommunityService:
         total_community_members = max(len(tautulli_users), len(get_all_users()))
 
         home_stats = tautulli.get_home_stats(time_range=30)
-        recent_history = tautulli.get_history(length=30)
+        recent_history = tautulli.get_history(length=30, machine_id=settings.plex_machine_id)
+        if not (home_stats or recent_history):
+            return self._build_from_db(
+                current_user, seen_index, user_item_ids, local_user_stats, media_meta,
+                local_user_metrics, achievement_metrics,
+            )
 
         # 1. Parse Popular Movies & TV (prioritize popular_* over top_* to capture true distinct viewer counts)
         stat_groups = {g.get("stat_id"): g.get("rows", []) or [] for g in home_stats}
@@ -436,7 +453,8 @@ class CommunityService:
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
-            overlap_pct=overlap_pct,
+            achievement_metrics=achievement_metrics,
+            popular=all_popular,
         )
 
         is_single_user = total_community_members <= 1
@@ -471,6 +489,7 @@ class CommunityService:
         local_user_stats: Dict[str, Any],
         media_meta: Dict[str, Dict[str, Any]],
         local_user_metrics: Optional[Dict[str, Dict[str, Any]]] = None,
+        achievement_metrics: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """Aggregate community data purely from Mindarr's local database (fallback/offline mode)."""
         all_users = get_all_users()
@@ -533,6 +552,7 @@ class CommunityService:
                 "title": title,
                 "year": year,
                 "media_type": mtype,
+                "rating_key": rk,
                 "users_watched": d.get("user_count", 1),
                 "total_plays": d.get("total_plays", 1),
                 "seen_by_user": seen,
@@ -620,7 +640,8 @@ class CommunityService:
         leaderboard, user_comparison, podium = self._build_leaderboard_and_comparison(
             current_user=current_user,
             candidate_users=candidate_users,
-            overlap_pct=overlap_pct,
+            achievement_metrics=achievement_metrics,
+            popular=all_popular,
         )
 
         return {
@@ -768,100 +789,20 @@ class CommunityService:
             return "Culture Connoisseur 🎭"
         return "Rising Critic 🌟"
 
-    @staticmethod
-    def _evaluate_badges(
-        rank: int,
-        plays: int,
-        total_hours: float,
-        movie_count: int,
-        show_count: int,
-        genre_count: int,
-        overlap_pct: int,
-        is_registered: bool,
-    ) -> List[Dict[str, Any]]:
-        """Award badges earned by viewing behavior and server participation."""
-        badges = []
-        if rank == 1 and plays > 0:
-            badges.append({
-                "id": "champion",
-                "name": "Server Champion",
-                "icon": "👑",
-                "desc": "Ranked #1 Top Watcher on the server",
-                "unlocked": True,
-            })
-        if total_hours >= 100:
-            badges.append({
-                "id": "century",
-                "name": "Century Club",
-                "icon": "⏱️",
-                "desc": "Logged 100+ hours of playback",
-                "unlocked": True,
-            })
-        elif total_hours >= 25:
-            badges.append({
-                "id": "marathon",
-                "name": "Marathoner",
-                "icon": "🍿",
-                "desc": "Logged 25+ hours of playback",
-                "unlocked": True,
-            })
-        if movie_count >= 15:
-            badges.append({
-                "id": "cinephile",
-                "name": "Film Buff",
-                "icon": "🎬",
-                "desc": "Streamed 15+ feature films",
-                "unlocked": True,
-            })
-        if show_count >= 25 or (plays - movie_count) >= 25:
-            badges.append({
-                "id": "binge",
-                "name": "Binge Titan",
-                "icon": "📺",
-                "desc": "Watched 25+ TV episodes or series",
-                "unlocked": True,
-            })
-        if genre_count >= 4:
-            badges.append({
-                "id": "explorer",
-                "name": "Genre Explorer",
-                "icon": "🧭",
-                "desc": "Explored 4 or more diverse genres",
-                "unlocked": True,
-            })
-        if overlap_pct >= 40:
-            badges.append({
-                "id": "trendsetter",
-                "name": "Taste Maker",
-                "icon": "🎯",
-                "desc": "Seen 40%+ of server trending titles",
-                "unlocked": True,
-            })
-        if is_registered:
-            badges.append({
-                "id": "pioneer",
-                "name": "Server Pioneer",
-                "icon": "🌟",
-                "desc": "Registered community member of this Plex server",
-                "unlocked": True,
-            })
-        return badges
-
     def _build_leaderboard_and_comparison(
         self,
         current_user: Dict[str, Any],
         candidate_users: List[Dict[str, Any]],
-        overlap_pct: int = 0,
+        achievement_metrics: Optional[dict] = None,
+        popular: Optional[list] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
         """Construct server-wide leaderboard, rank ordering, badges, and user head-to-head comparison."""
         from collections import Counter
 
         my_uk = str(current_user.get("user_key") or "")
-        my_username = (current_user.get("username") or "").lower()
-        my_email = (current_user.get("email") or "").lower()
 
         # Ensure current user is in candidate list
-        has_me = any(c.get("is_me") for c in candidate_users)
+        has_me = any(c["user_key"] == my_uk for c in candidate_users)
         if not has_me:
             c_key = my_uk or "1"
             c_user = current_user.get("username") or "You"
@@ -882,6 +823,7 @@ class CommunityService:
             })
 
         for c in candidate_users:
+            c["is_me"] = c["user_key"] == (my_uk or "1")
             raw_u = c.get("username")
             raw_d = c.get("display_name")
             c["display_name"] = raw_d or raw_u
@@ -934,6 +876,11 @@ class CommunityService:
             reverse=True
         )
 
+        total_active = sum(c["total_plays"] > 0 for c in candidate_users)
+        achievement_metrics = {key: dict(m) for key, m in (achievement_metrics or {}).items()}
+        add_trending_metrics(achievement_metrics, popular or [])
+        my_awards = []
+        my_summary = {}
         for i, c in enumerate(candidate_users):
             rank = i + 1
             c["rank"] = rank
@@ -945,17 +892,22 @@ class CommunityService:
                 tv_pct=c["tv_pct"]
             )
             c["gamification"]["title"] = w_title
-            badges = self._evaluate_badges(
-                rank=rank,
-                plays=c["total_plays"],
-                total_hours=c["total_hours"],
-                movie_count=c["movie_count"],
-                show_count=c["show_count"],
-                genre_count=c["genre_count"],
-                overlap_pct=overlap_pct if c.get("is_me") else 0,
-                is_registered=c.get("is_registered", False)
+            metrics = achievement_metrics.setdefault(c["user_key"], {})
+            if not c.get("is_registered"):
+                # Tautulli-only users have aggregate playback, not synced per-title history.
+                metrics["plays"] = c["total_plays"]
+                metrics["watch_hours"] = c["total_duration_seconds"] / 3600
+            metrics.update(
+                registered=int(bool(c.get("is_registered"))),
+                podium=int(rank <= 3 and total_active >= 3 and c["total_plays"] > 0),
+                champion=int(rank == 1 and c["total_plays"] > 0),
             )
-            c["gamification"]["badges"] = badges
+            awards = evaluate_achievements(metrics)
+            summary = summarize_achievements(awards)
+            c["gamification"].update(badges=summary["badges"], trophy_score=summary["trophy_score"])
+            if c.get("is_me"):
+                my_awards = awards
+                my_summary = summary
 
         # User head-to-head comparison
         me = next((c for c in candidate_users if c.get("is_me")), candidate_users[0])
@@ -988,20 +940,6 @@ class CommunityService:
         else:
             rank_message = f"Climbing the ranks! 🚀 Only {next_rank_gap} more play{'s' if next_rank_gap != 1 else ''} to overtake #{user_rank - 1} ({next_rank_user})!"
 
-        unlocked_ids = {b["id"] for b in me["gamification"]["badges"]}
-        all_badge_catalog = [
-            {"id": "champion", "name": "Server Champion", "icon": "👑", "desc": "Ranked #1 Top Watcher on the server", "hint": "Claim the #1 spot on the leaderboard"},
-            {"id": "century", "name": "Century Club", "icon": "⏱️", "desc": "Logged 100+ hours of playback", "hint": "Stream 100 hours of content"},
-            {"id": "marathon", "name": "Marathoner", "icon": "🍿", "desc": "Logged 25+ hours of playback", "hint": "Stream 25 hours of content"},
-            {"id": "cinephile", "name": "Film Buff", "icon": "🎬", "desc": "Streamed 15+ feature films", "hint": "Watch 15 feature films"},
-            {"id": "binge", "name": "Binge Titan", "icon": "📺", "desc": "Watched 25+ TV episodes or series", "hint": "Watch 25 TV episodes"},
-            {"id": "explorer", "name": "Genre Explorer", "icon": "🧭", "desc": "Explored 4 or more diverse genres", "hint": "Watch titles from 4 different genres"},
-            {"id": "trendsetter", "name": "Taste Maker", "icon": "🎯", "desc": "Seen 40%+ of server trending titles", "hint": "Watch more titles trending in community"},
-            {"id": "pioneer", "name": "Server Pioneer", "icon": "🌟", "desc": "Registered community member of this Plex server", "hint": "Sign in with your Plex account"},
-        ]
-        unlocked_badges = me["gamification"]["badges"]
-        locked_badges = [b for b in all_badge_catalog if b["id"] not in unlocked_ids]
-
         user_comparison = {
             "user_rank": user_rank,
             "total_watchers": total_watchers,
@@ -1016,8 +954,18 @@ class CommunityService:
             "next_rank_gap": next_rank_gap,
             "next_rank_user": next_rank_user,
             "rank_message": rank_message,
-            "unlocked_badges": unlocked_badges,
-            "locked_badges": locked_badges,
+            "trophy_case": {
+                **my_summary,
+                "unlocked_count": len(my_summary["badges"]),
+                "total_count": len(my_awards),
+                "current_streak": achievement_metrics[me["user_key"]].get("current_streak", 0),
+                "best_streak": achievement_metrics[me["user_key"]].get("best_streak", 0),
+                "categories": [
+                    {"id": key, "name": name, "awards": [a for a in my_awards if a["category"] == key]}
+                    for key, name in CATEGORIES
+                ],
+            },
+            "server_records": self._build_server_records(candidate_users, achievement_metrics) if total_active >= 2 else [],
         }
 
         podium = {
@@ -1027,6 +975,27 @@ class CommunityService:
         }
 
         return candidate_users, user_comparison, podium
+
+    @staticmethod
+    def _build_server_records(candidates: list, metrics: dict) -> list:
+        records = []
+        for name, icon, key, unit in (
+            ("Longest Streak", "🔥", "best_streak", "days"),
+            ("Highest Trophy Score", "🏆", "trophy_score", "pts"),
+            ("Most Genres Explored", "🧭", "genres", "genres"),
+            ("Top Rewatcher", "🔁", "rewatched_titles", "titles replayed"),
+            ("Biggest Cinephile", "🎬", "movies", "movies"),
+        ):
+            entries = [
+                (c["display_name"], c["gamification"]["trophy_score"] if key == "trophy_score"
+                 else metrics[c["user_key"]].get(key, 0))
+                for c in candidates if c["total_plays"] > 0
+            ]
+            best = max((value for _, value in entries), default=0)
+            if best > 0:
+                records.append({"name": name, "icon": icon, "value": best, "unit": unit,
+                                "holders": [name for name, value in entries if value == best]})
+        return records
 
 
 community_service = CommunityService()

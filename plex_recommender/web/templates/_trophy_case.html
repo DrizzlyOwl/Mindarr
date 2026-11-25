@@ -1,0 +1,114 @@
+{% set rarity_classes = {
+    'bronze': 'border-orange-900/60 text-orange-300',
+    'silver': 'border-slate-600/80 text-slate-300',
+    'gold': 'border-amber-500/40 text-amber-300',
+    'legendary': 'border-violet-500/50 text-violet-300'
+} %}
+{% macro trophy_progress(label, current, target, percent) %}
+<div role="progressbar" aria-label="{{ label }}" aria-valuemin="0" aria-valuenow="{{ current }}" aria-valuemax="{{ target }}" class="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+    <div class="h-full rounded-full bg-amber-400" style="width: {{ percent }}%"></div>
+</div>
+{% endmacro %}
+<section id="trophy-case" aria-labelledby="trophy-case-heading" class="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/20 border border-amber-500/30 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+    <div class="grid gap-4 md:grid-cols-2">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-amber-400">Achievements</p>
+            <h3 id="trophy-case-heading" class="text-2xl font-bold text-white">Your Trophy Case</h3>
+            <p class="mt-1 max-w-md text-xs leading-relaxed text-slate-400">Trophies are recalculated from synced history and current activity. Live badges can change with standings, trends, or app activity.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2">
+                <div class="text-xs text-slate-400">Trophy Score</div>
+                <div class="text-xl font-bold text-amber-300">{{ trophies.trophy_score }} <span class="text-xs font-medium text-slate-400">/ {{ trophies.max_trophy_score }} pts</span></div>
+                <div class="text-xs text-slate-300">{{ trophies.unlocked_count }} / {{ trophies.total_count }} unlocked · {{ trophies.completion_pct }}%</div>
+                {{ trophy_progress('Trophy case completion', trophies.unlocked_count, trophies.total_count, trophies.completion_pct) }}
+            </div>
+            <div class="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2">
+                <div class="text-xs text-slate-400">Current Streak</div>
+                <div class="text-xl font-bold text-amber-300">{{ trophies.current_streak }} <span class="text-xs font-medium text-slate-400">{{ 'day' if trophies.current_streak == 1 else 'days' }}</span></div>
+                <div class="text-xs text-slate-300">Best: {{ trophies.best_streak }} {{ 'day' if trophies.best_streak == 1 else 'days' }}</div>
+            </div>
+        </div>
+    </div>
+
+    {% if trophies.next_up %}
+    <div class="space-y-2">
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Next Up</h4>
+        <div class="grid gap-2 sm:grid-cols-3">
+            {% for badge in trophies.next_up %}
+            <div class="bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2">
+                <div class="flex flex-wrap justify-between gap-x-2 text-xs">
+                    <span class="font-semibold text-slate-200"><span aria-hidden="true">{{ badge.icon }}</span> {{ badge.name }}</span>
+                    <span class="text-slate-400">{{ badge.current }} / {{ badge.target }}{{ badge.unit }}</span>
+                </div>
+                {{ trophy_progress(badge.name ~ ' progress', badge.current, badge.target, badge.progress_pct) }}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div data-trophy-filters hidden>
+        <div class="flex flex-wrap gap-2" role="group" aria-label="Filter achievements by category">
+            <button type="button" data-trophy-filter="all" aria-pressed="true" class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:text-white aria-pressed:border-amber-500/50 aria-pressed:bg-amber-500/10 aria-pressed:text-amber-300">All</button>
+            {% for category in trophies.categories %}
+            <button type="button" data-trophy-filter="{{ category.id }}" aria-pressed="false" class="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:text-white aria-pressed:border-amber-500/50 aria-pressed:bg-amber-500/10 aria-pressed:text-amber-300">{{ category.name }}</button>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="space-y-2">
+        {% for category in trophies.categories %}
+        <details data-trophy-category="{{ category.id }}" {% if loop.first %}open{% endif %} class="rounded-xl border border-slate-800 bg-slate-950/40">
+            <summary class="cursor-pointer select-none rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400">
+                {{ category.name }} <span class="ml-1 text-xs font-normal text-slate-400">{{ category.awards|selectattr('unlocked')|list|length }} / {{ category.awards|length }}</span>
+            </summary>
+            <ul class="grid gap-2 px-3 pb-3 sm:grid-cols-2 lg:grid-cols-3">
+                {% for badge in category.awards %}
+                <li class="rounded-xl border bg-slate-950/60 p-3 {{ rarity_classes[badge.rarity] if badge.unlocked else 'border-slate-800 text-slate-400' }}">
+                    <div class="flex items-start gap-2.5">
+                        <span aria-hidden="true" class="text-xl {{ '' if badge.unlocked else 'grayscale' }}">{{ badge.icon }}</span>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap justify-between gap-x-2">
+                                <h5 class="text-sm font-bold text-slate-100">{{ badge.name }}</h5>
+                                <span class="text-xs font-semibold">{{ badge.rarity|capitalize }} · {{ badge.points }} pts</span>
+                            </div>
+                            <p class="mt-1 text-xs text-slate-400">{{ badge.desc }}</p>
+                            <div class="mt-2 flex flex-wrap items-center justify-between gap-x-2 text-xs">
+                                {% if badge.unlocked %}<span class="font-medium text-emerald-400">Unlocked</span>
+                                {% elif not badge.available %}<span>Unavailable</span>
+                                {% elif badge.target == 1 %}<span>Locked</span>
+                                {% else %}<span>{{ badge.current }} / {{ badge.target }}{{ badge.unit }}</span>{% endif %}
+                                {% if badge.live %}<span class="rounded border border-slate-700 px-1.5 text-slate-400">Live</span>{% endif %}
+                            </div>
+                            {% if not badge.unlocked and badge.available and badge.target > 1 %}
+                            {{ trophy_progress(badge.name ~ ' progress', badge.current, badge.target, badge.progress_pct) }}
+                            {% endif %}
+                        </div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </details>
+        {% endfor %}
+    </div>
+</section>
+<script>
+    (() => {
+        const trophyCase = document.getElementById('trophy-case');
+        const filters = trophyCase.querySelector('[data-trophy-filters]');
+        const buttons = filters.querySelectorAll('[data-trophy-filter]');
+        const sections = trophyCase.querySelectorAll('[data-trophy-category]');
+        filters.hidden = false;
+        filters.addEventListener('click', event => {
+            const button = event.target.closest('[data-trophy-filter]');
+            if (!button) return;
+            const category = button.dataset.trophyFilter;
+            buttons.forEach(item => item.setAttribute('aria-pressed', item === button ? 'true' : 'false'));
+            sections.forEach(section => {
+                section.hidden = category !== 'all' && section.dataset.trophyCategory !== category;
+                if (!section.hidden && category !== 'all') section.open = true;
+            });
+        });
+    })();
+</script>

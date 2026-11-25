@@ -8,6 +8,7 @@ from plex_recommender.db import init_db, get_connection
 from plex_recommender.db.media import upsert_media_item, upsert_media_items_batch, get_existing_keywords_map
 from plex_recommender.db.watch import upsert_user_media, record_watch_event, get_stats
 from plex_recommender.db.recommendations import set_setting, clear_recommendations_cache
+from plex_recommender.community import community_service
 from plex_recommender.db.users import get_user
 from plex_recommender.discovery.tautulli import tautulli
 from plex_recommender.discovery.tmdb import tmdb
@@ -274,6 +275,7 @@ def sync_library_metadata(progress_callback: Optional[Callable[[str, float], Non
     now_iso = datetime.now().isoformat()
     set_setting("last_sync_time", now_iso)
     clear_recommendations_cache()
+    community_service.clear_cache()
     logger.info("Cleared recommendations cache following successful library metadata sync.")
 
     if progress_callback:
@@ -647,6 +649,7 @@ def sync_user_history(
     if progress_callback:
         progress_callback("Updating recommendations cache...", 0.95)
     clear_recommendations_cache()
+    community_service.clear_cache()
     if progress_callback:
         progress_callback("History sync completed!", 1.0)
 
@@ -689,4 +692,3 @@ def discover_and_register_shared_users() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning("Could not discover shared users: %s", e)
         return []
-

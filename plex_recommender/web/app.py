@@ -1759,6 +1759,7 @@ def api_clear_user_data(request: Request, user_key: str = Form(...)):
     if not admin or not admin.get("is_admin"):
         return JSONResponse({"error": "forbidden"}, status_code=403)
     clear_user_data(user_key)
+    community_service.clear_cache()
     logger.info("Admin '%s' wiped all watch data and cached recommendations for user '%s'.", admin.get("username"), user_key)
     return RedirectResponse(url="/settings/system?cleared=1", status_code=303)
 
