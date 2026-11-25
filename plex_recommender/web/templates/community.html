@@ -436,7 +436,7 @@
                                 <div class="mb-1 text-xs font-mono font-semibold text-amber-300">{{ user_row.gamification.trophy_score }} pts</div>
                                 <div class="inline-flex items-center space-x-1">
                                     {% for badge in user_row.gamification.badges[:4] %}
-                                    <button type="button" onclick="togglePopover('badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" aria-label="{{ badge.name }}: {{ badge.desc }}">
+                                    <button type="button" onclick="toggleMindarrPopover('badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md bg-slate-800/80 border border-slate-700/80 text-sm" aria-label="{{ badge.name }}: {{ badge.desc }}">
                                         {{ badge.icon }}
                                         <span id="badge-popover-row-{{ user_row.rank }}-{{ loop.index0 }}" data-popover class="hidden absolute right-0 top-7 z-50 w-40 whitespace-normal text-left bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] font-medium rounded-lg px-3 py-2 shadow-2xl">{{ badge.name }}: {{ badge.desc }}</span>
                                     </button>

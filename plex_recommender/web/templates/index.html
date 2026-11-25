@@ -191,7 +191,7 @@
             <p class="text-[11px] text-slate-500 mb-3">Recurring narrative motifs across your watch history, weighted by affinity &amp; recency. These steer your recommendations.</p>
             <div class="flex flex-wrap gap-2">
                 {% for k in profile.top_keywords[:15] %}
-                <button type="button" onclick="togglePopover('keyword-popover-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true"
+                <button type="button" onclick="toggleMindarrPopover('keyword-popover-{{ loop.index0 }}')" aria-expanded="false" aria-haspopup="true"
                       class="relative inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-800/70 border border-slate-700/60 text-xs hover:border-slate-600 transition">
                     <span class="font-medium text-slate-200">{{ k.keyword }}</span>
                     <span class="text-[10px] font-semibold text-amber-400">{{ k.score }}%</span>

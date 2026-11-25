@@ -1293,7 +1293,7 @@
         if (!popover || !body) return;
 
         const wasHidden = popover.classList.contains('hidden');
-        togglePopover(popoverId);
+        toggleMindarrPopover(popoverId);
         if (!wasHidden) return; // Closing
 
         body.innerHTML = '<div class="text-xs text-slate-400 py-2 text-center">Loading seasons…</div>';
